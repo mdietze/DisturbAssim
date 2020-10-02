@@ -1,0 +1,394 @@
+---
+title: "Single Site, Single Disturbance"
+author: "Michael Dietze"
+date: "7/14/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Initial code for this started from the "Assimilation of disturbance" example in <https://github.com/EcoForecast/EF_BookCode/blob/master/Ch02_Logitic.Rmd> which itself derived from simple simulations and KF developed for a 2013 talk at the Ecological Society of America annual meeting.
+
+### Assimilation of disturbance
+
+"True" run
+
+```{r,echo=1:2, fig.width=7, fig.height=6}
+set.seed(1066)
+p.dist = 0.05
+n0 = 1
+nIC = 6
+r = .1
+K = 6
+n.sd = 0.25
+NT = 100
+time = 1:NT
+xlim = c(5,25)
+n = rep(nIC,NT)
+d = rep(0,NT)
+d[10] = 1  ## prescribe a disturbance
+for(t in 2:NT){
+  n[t] = n[t-1] + r*n[t-1]*(1-n[t-1]/K) + rnorm(1,0,n.sd)
+#  d[t] = rbinom(1,1,p.dist)
+  if(d[t]) n[t] = abs(rnorm(1,n0,0.5))
+}
+
+plot(time,n,type='l',ylim=range(n),xlim=xlim,xlim=xlim,ylab="LAI",lwd=3)
+obs.sd = 0.75
+n.true=n
+n.obs = rnorm(NT,n.true,obs.sd)
+points(time,n.obs,pch=18,col=2,cex=1.5)
+legend("topleft",legend=c("truth","obs"),lwd=c(2,NA),pch=c(NA,18),col=1:2)
+## Simulate less frequent observations
+#na.seq = 1:NT; na.seq=na.seq[-seq(1,NT,by=5)]
+#n.fia = n.obs;n.fia[na.seq] <- NA
+#points(time,n.fia,pch=18,col="blue",cex=2)
+```
+
+## "blind" forecast w/o disturbance
+
+```{r}
+n0.sd = n.sd
+NE = 1000
+n0s = rlnorm(NE,log(nIC),n0.sd)
+ne0 = matrix(n0s,NE,NT)
+for(i in 1:NE){
+  for(t in 2:NT){
+    ne0[i,t] = abs(ne0[i,t-1] + r*ne0[i,t-1]*(1-ne0[i,t-1]/K) + rnorm(1,0,n.sd))
+#    if(rbinom(1,1,p.dist)) ne[i,t] = abs(rnorm(1,n0,0.5))
+  }
+}
+yrng = c(0,8) #range(ne0)
+n0.stats = apply(ne0,2,quantile,c(0.025,0.5,0.975))
+plot(time,n.obs,type='n',ylim=yrng,xlim=xlim)
+polygon(cbind(c(time, rev(time), 1), c(n0.stats[1, ], rev(n0.stats[3, ]),
+  n.stats[1, 1])), border = NA, col = 'lightblue')
+lines(time,n0.stats[2,],lwd=2,col="blue4")
+points(time,n.obs,pch=18,col=2,cex=1.5)
+```
+
+## standard EnKF w/o disturbance
+
+```{r,echo=FALSE, fig.width=7, fig.height=6}
+## initial ensemble
+ens = matrix(NA,NT*2+1,NE)
+ens[1,] = rlnorm(NE,log(nIC),n0.sd)
+Xae = Pae = 0
+Xfe = mean(ens[1,])
+Pfe = var(ens[1,])
+for(i in 1:NT){
+  
+  ##Approximate forecast with Normal
+  k = 2*(i-1)+1
+  Xfe[i] = mean(ens[k,])
+  Pfe[i] = var(ens[k,])
+  
+  ## analysis step: combine previous forecast with observed data
+  H <- matrix(1,ncol=1)
+  Kg <- Pfe[i] * t(H) %*% solve(H%*%Pfe[i]%*%t(H) + obs.sd)
+  if(!is.na(n.obs[i])){
+    Xae[i] <- Xfe[i] + Kg*(n.obs[i] - Xfe[i]) 
+  }else{
+    Xae[i] <- Xfe[i]
+  }
+  Pae[i] <- (1-Kg %*% H)*Pfe[i]    
+  
+  ## generate new ensemble
+  ens[k+1,] = rnorm(NE,Xae[i],sqrt(Pae[i]))
+  
+  ## Forecast step: predict to next step from current
+  ens[k+2,] = ens[k+1,] + r*ens[k+1,]*(1-ens[k+1,]/K) + rnorm(NE,0,n.sd) 
+#  disturbed = as.logical(rbinom(NE,1,p.dist))
+#  ens[k+2,disturbed] = abs(rnorm(sum(disturbed),n0,0.5)) ## disturbance
+
+}
+
+## forecast
+fx0 = ens[2*(1:NT)-1,]
+fx0.stats = apply(fx0,1,quantile,c(0.025,0.25,0.5,0.75,0.975))
+plot(time,fx0.stats[5,],col="blue",ylim=yrng,xlim=xlim,type='n',ylab="LAI",cex.lab=1.5)  
+polygon(cbind(c(time, rev(time), 1), c(n0.stats[1, ], rev(n0.stats[3, ]),      ## Free run, no disturbance
+  n0.stats[1, 1])), border = NA, col = 'lightblue')
+polygon(cbind(c(time, rev(time), 1), c(fx0.stats[1, ], rev(fx0.stats[5, ]),    ## Forecast 95%
+  fx0.stats[1, 1])), border = NA, col = 'lightgreen')
+polygon(cbind(c(time, rev(time), 1), c(fx0.stats[2, ], rev(fx0.stats[4, ]),    ## Forecast IQR
+  fx0.stats[2, 1])), border = NA, col = 'green4')
+#lines(time[-NT],fx.stats[2,-1],lwd=4,col="green")
+lines(time,n0.stats[2,],lwd=2,col="blue4")                                     ## Free run mean
+lines(time,n.true,type='l',lwd=2)                                              ## truth
+points(time,n.obs,pch=18,col=2)                                                ##obs
+legend("topleft",legend=c("True","Obs","95%","IQR","Model"),lty=c(1,0,1,1,1),col=c(1,2,"lightgreen","green4","lightblue"),lwd=c(1,NA,15,15,15),cex=1.2,pch=c(NA,18,NA,NA,NA))
+
+## analysis
+an0 = ens[2*(1:NT),]
+an0.stats = apply(an0,1,quantile,c(0.025,0.25,0.5,0.75,0.975))
+plot(time,an0.stats[5,],col="blue",ylim=yrng,xlim=xlim,type='n',ylab="LAI",cex.lab=1.5)
+polygon(cbind(c(time, rev(time), 1), c(n0.stats[1, ], rev(n0.stats[3, ]),
+  n0.stats[1, 1])), border = NA, col = 'lightblue')
+polygon(cbind(c(time, rev(time), 1), c(an0.stats[1, ], rev(an0.stats[5, ]),
+  an0.stats[1, 1])), border = NA, col = 'lightgreen')
+polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
+  an0.stats[2, 1])), border = NA, col = 'green4')
+lines(time,n0.stats[2,],lwd=2,col="blue4")
+lines(time,n.true,type='l',lwd=2)
+points(time,n.obs,pch=18,col=2)
+legend("topleft",legend=c("True","Obs","95%","IQR","Model"),lty=c(1,0,1,1,1),col=c(1,2,"lightgreen","green4","lightblue"),lwd=c(1,NA,15,15,15),cex=1.2,pch=c(NA,18,NA,NA,NA))
+
+```
+
+## "blind" forecast w/ disturb
+
+```{r}
+n0.sd = n.sd
+NE = 1000
+n0s = rlnorm(NE,log(nIC),n0.sd)
+ne = matrix(n0s,NE,NT)
+for(i in 1:NE){
+  for(t in 2:NT){
+    ne[i,t] = abs(ne[i,t-1] + r*ne[i,t-1]*(1-ne[i,t-1]/K) + rnorm(1,0,n.sd))
+    if(rbinom(1,1,p.dist)) ne[i,t] = abs(rnorm(1,n0,0.5))
+  }
+}
+yrng = range(ne)
+n.stats = apply(ne,2,quantile,c(0.025,0.5,0.975))
+plot(time,n.obs,type='n',xlim=xlim)
+polygon(cbind(c(time, rev(time), 1), c(n.stats[1, ], rev(n.stats[3, ]),
+  n.stats[1, 1])), border = NA, col = 'lightblue')
+lines(time,n.stats[2,],lwd=2,col="blue4")
+points(time,n.obs,pch=18,col=2,cex=1.5)
+```
+
+## standard EnKF + Disturb
+
+```{r,echo=FALSE, fig.width=7, fig.height=6}
+## initial ensemble
+ens = matrix(NA,NT*2+1,NE)
+ens[1,] = rlnorm(NE,log(nIC),n0.sd)
+Xae = Pae = 0
+Xfe = mean(ens[1,])
+Pfe = var(ens[1,])
+for(i in 1:NT){
+  
+  ##Approximate forecast with Normal
+  k = 2*(i-1)+1
+  Xfe[i] = mean(ens[k,])
+  Pfe[i] = var(ens[k,])
+  
+  ## analysis step: combine previous forecast with observed data
+  H <- matrix(1,ncol=1)
+  Kg <- Pfe[i] * t(H) %*% solve(H%*%Pfe[i]%*%t(H) + obs.sd)
+  if(!is.na(n.obs[i])){
+    Xae[i] <- Xfe[i] + Kg*(n.obs[i] - Xfe[i]) 
+  }else{
+    Xae[i] <- Xfe[i]
+  }
+  Pae[i] <- (1-Kg %*% H)*Pfe[i]    
+  
+  ## generate new ensemble
+  ens[k+1,] = rnorm(NE,Xae[i],sqrt(Pae[i]))
+  
+  ## Forecast step: predict to next step from current
+  ens[k+2,] = ens[k+1,] + r*ens[k+1,]*(1-ens[k+1,]/K) + rnorm(NE,0,n.sd) 
+  disturbed = as.logical(rbinom(NE,1,p.dist))
+  ens[k+2,disturbed] = abs(rnorm(sum(disturbed),n0,0.5)) ## disturbance
+#  Xfe[i+1] = m*Xa[i] + beta[2]
+#  Pfe[i+1] = q + m*Pa[i]*m
+  
+}
+
+## forecast
+fx = ens[2*(1:NT)-1,]
+fx.stats = apply(fx,1,quantile,c(0.025,0.25,0.5,0.75,0.975))
+plot(time,fx.stats[5,],col="blue",ylim=yrng,xlim=xlim,type='n',ylab="LAI",cex.lab=1.5)
+polygon(cbind(c(time, rev(time), 1), c(n.stats[1, ], rev(n.stats[3, ]),
+  n.stats[1, 1])), border = NA, col = 'lightblue')
+polygon(cbind(c(time, rev(time), 1), c(fx.stats[1, ], rev(fx.stats[5, ]),
+  fx.stats[1, 1])), border = NA, col = 'lightgreen')
+polygon(cbind(c(time, rev(time), 1), c(fx.stats[2, ], rev(fx.stats[4, ]),
+  fx.stats[2, 1])), border = NA, col = 'green4')
+#lines(time[-NT],fx.stats[2,-1],lwd=4,col="green")
+lines(time,n.stats[2,],lwd=2,col="blue4")
+lines(time,n.true,type='l',lwd=2)
+points(time,n.obs,pch=18,col=2)
+legend("topleft",legend=c("True","Obs","95%","IQR","Model"),lty=c(1,0,1,1,1),col=c(1,2,"lightgreen","green4","lightblue"),lwd=c(1,NA,15,15,15),cex=1.2,pch=c(NA,18,NA,NA,NA))
+
+## analysis
+an = ens[2*(1:NT),]
+an.stats = apply(an,1,quantile,c(0.025,0.25,0.5,0.75,0.975))
+plot(time,an.stats[5,],col="blue",ylim=yrng,xlim=xlim,type='n',ylab="LAI",cex.lab=1.5)
+polygon(cbind(c(time, rev(time), 1), c(n.stats[1, ], rev(n.stats[3, ]),
+  n.stats[1, 1])), border = NA, col = 'lightblue')
+polygon(cbind(c(time, rev(time), 1), c(an.stats[1, ], rev(an.stats[5, ]),
+  an.stats[1, 1])), border = NA, col = 'lightgreen')
+polygon(cbind(c(time, rev(time), 1), c(an.stats[2, ], rev(an.stats[4, ]),
+  an.stats[2, 1])), border = NA, col = 'green4')
+polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),  ## Analysis IQR- no disturb
+  an0.stats[2, 1])), border = NA, col = 'orange')
+lines(time,n.stats[2,],lwd=2,col="blue4")
+lines(time,n.true,type='l',lwd=2)
+points(time,n.obs,pch=18,col=2)
+legend("topleft",legend=c("True","Obs","95%","IQR","Model"),lty=c(1,0,1,1,1),col=c(1,2,"lightgreen","green4","lightblue"),lwd=c(1,NA,15,15,15),cex=1.2,pch=c(NA,18,NA,NA,NA))
+
+```
+
+## Offline State-Space Model
+
+Start by fitting the full state-space model to the data, then move on to figuring out how to approximate that iteratively
+
+```{r}
+library(rjags)
+
+SSSD <- "
+model{
+  q  ~ dgamma(aq,bq)
+  r  ~ dgamma(ar,br)
+  R  ~ dgamma(aR,bR)
+  K  ~ dgamma(aK,bK)
+  p  ~ dbeta(ap,bp)
+  for(t in 1:nt){
+    Y[t] ~ dnorm(n[t],r)
+  }
+  n[1] <- N0            ## should add some uncertainty
+  for(t in 2:nt){
+    muN[t] <- n[t-1] + R*n[t-1]*(1-n[t-1]/K)
+    muD[t] ~ dnorm(mu0,pa0)
+    D[t] ~ dbern(p)
+    mu[t] <- D[t]*muD[t] + (1-D[t])*muN[t]
+    n[t] ~ dnorm(mu[t],q)
+  }
+}"
+## Run individual models
+data = list(Y=n.obs,nt=NT,
+            mu0=1,pa0=1,  ## put a bit more confidence in the low value
+            aq=0.1,bq=0.1,
+            ar=0.1,br=0.1,
+            aR=r,bR=1,
+            aK=K,bK=1,
+            ap=p.dist*50,bp=(1-p.dist)*50, ## try with an informative prior
+            N0 = nIC)  
+ mod <- jags.model(file=textConnection(SSSD),
+                   data=data,
+                  n.adapt=1000,n.chains=3,
+                  init=list(R = r, K = K, q = n.sd,p=p.dist))
+ jdat <- coda.samples(mod,variable.names=c("R","K","p","r","q"),n.iter=3000) ## burnin
+ #plot(jdat)
+ jdat <- coda.samples(mod,variable.names=c("n","D","muN","muD"),n.iter=30000,thin=10) ## samples
+```
+
+```{r}
+## summarize output
+CI <- apply(as.matrix(jdat),2,quantile,c(0.025,0.5,0.975))
+CIN <- CI[,grep(pattern = "n",colnames(CI))]
+col=col2rgb("blue")
+plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim)
+ecoforecastR::ciEnvelope(1:NT,CIN[1,],CIN[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+lines(CIN[2,],col="blue",lwd=2)
+
+## Disturbance probability
+Dsamp <- as.matrix(jdat)
+Dsamp <- Dsamp[,grep(pattern = "^D",colnames(Dsamp))]
+muD <- apply(Dsamp,2,mean)
+
+CID <- CI[,grep(pattern = "^D",colnames(CI))]
+col=col2rgb("blue")
+plot(2:NT,muD,ylim = range(CID),xlim=xlim,type='l')
+ecoforecastR::ciEnvelope(2:NT,CID[1,],CID[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+
+
+
+if(FALSE){  ## didn't work as expected because D is 0/1, want to plot p[t]
+Dden <- data.frame(val=as.vector(Dsamp),year=rep(1:ncol(Dsamp),each=nrow(Dsamp)))
+ggplot2::ggplot(Dden, ggplot2::aes(x = val, y = year,  group = year)) +
+  ggridges::geom_density_ridges() +
+  ggridges::theme_ridges() + 
+  ggplot2::theme(legend.position = "none")
+}
+
+## Disturb vs Non
+CImuN <- CI[,grep(pattern = "muN",colnames(CI))]
+CImuD <- CI[,grep(pattern = "muD",colnames(CI))]
+colN=col2rgb("green")
+colD=col2rgb("orange")
+plot(data$Y,ylim = range(rbind(CImuN,CImuD,data$Y[-1])),xlim=xlim,
+     ylab="Disturbance Probability")
+ecoforecastR::ciEnvelope(2:NT,CImuD[1,],CImuD[3,],col=rgb(colD[1],colD[2],colD[3],0.3*256,maxColorValue=256))
+ecoforecastR::ciEnvelope(2:NT,CImuN[1,],CImuN[3,],col=rgb(colN[1],colN[2],colN[3],0.3*256,maxColorValue=256))
+
+## comparison to EnKF
+plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
+     ylab="LAI",xlab="time")
+polygon(cbind(c(time, rev(time), 1), c(an0.stats[1, ], rev(an0.stats[5, ]),
+  an0.stats[1, 1])), border = NA, col = '#FFBF6C')
+polygon(cbind(c(time, rev(time), 1), c(an.stats[1, ], rev(an.stats[5, ]),
+  an.stats[1, 1])), border = NA, col = ecoforecastR::col.alpha('#b2df8a',0.7))
+ecoforecastR::ciEnvelope(1:NT,CIN[1,],CIN[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+lines(an0.stats[3,],col="orange",lwd=2)
+lines(an.stats[3,],col="#b2df8a",lwd=2)
+lines(CIN[2,],col="blue",lwd=2)
+points(data$Y,pch=18,col=2)
+legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data"),
+       lwd=5,col=c("orange","#b2df8a","blue","red"))
+
+```
+
+
+## Forward Filter version of SSSD, Known Params
+
+```{r}
+FilterSSSD <- "
+model{
+  N0 ~ dnorm(mu0,pa0)  ## initial conditions
+  ## Forecast
+  muN <- N0 + R*N0*(1-N0/K)
+  muD <- 1
+  D ~ dbern(p)
+  mu <- D[t]*muD + (1-D)*muN
+  n ~ dnorm(mu,q)
+  ## Analysis
+  Y ~ dnorm(n,r)
+}"
+## Forecast Cycle
+CI.LFP = matrix(NA,3,nt)
+Xl = data$mu0
+pl = data$pa0
+aqp = bqp = arp = brp = 0.1
+mu.m = 0
+p.m  = 1e-6
+for(t in 1:nt){
+  ## Forecast + Analysis
+  update = list(Y=Y[t],mu0=Xl,pa0=pl,aq=aqp[t],bq=bqp[t],ar=arp[t],br=brp[t],mu.m=mu.m[t],tau.m=p.m[t])
+  mod <- jags.model(file=textConnection(LinFilterParam),
+                   data=update,
+                  n.adapt=1000,n.chains=3,
+                  init=list(X.ic=Xlf))
+ jdat <- coda.samples(mod,variable.names=c("m","r","q","X"),n.iter=10000) 
+# plot(jdat)
+  
+  ## update parameters  
+  dat = as.matrix(jdat)
+  Xl  = mean(dat[,"X"])
+  pl  = 1/var(dat[,"X"])
+  CI.LFP[,t] = quantile(dat[,"X"],c(0.025,0.5,0.975))
+  mq = mean(dat[,"q"])
+  vq = var(dat[,"q"])
+  aqp[t+1] = mq*mq/vq
+  bqp[t+1] = mq/vq
+  mr = mean(dat[,"r"])
+  vr = var(dat[,"r"])
+  arp[t+1] = mr*mr/vr
+  brp[t+1] = mr/vr
+  mu.m[t+1] = mean(dat[,"m"])
+  p.m[t+1] = 1/var(dat[,"m"])
+}
+
+```
+
+## Todo
+
+-   Figure on what happens when a SDA model that doesn't include disturbance encounters disturbance
+-   More detail on what a model w/ disturbance but EnKF does during disturbance
+-   Get the iterative filter working to see how it compares to the other two
+-   Tweak model to have a simple C budget -- where does the C go when the model doesn't assimilate disturbance?
+-   Apply to SIPNET SDA
