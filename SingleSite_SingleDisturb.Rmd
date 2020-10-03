@@ -339,56 +339,95 @@ legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","dat
 ```{r}
 FilterSSSD <- "
 model{
-  N0 ~ dnorm(mu0,pa0)  ## initial conditions
+  N ~ dnorm(muIC,paIC)  ## initial conditions
   ## Forecast
-  muN <- N0 + R*N0*(1-N0/K)
-  muD <- 1
+  muN <- N + R*N*(1-N/K)
+  muD ~ dnorm(mu0,pa0)
   D ~ dbern(p)
-  mu <- D[t]*muD + (1-D)*muN
+  mu <- D*muD + (1-D)*muN
   n ~ dnorm(mu,q)
   ## Analysis
   Y ~ dnorm(n,r)
 }"
 ## Forecast Cycle
-CI.LFP = matrix(NA,3,nt)
-Xl = data$mu0
-pl = data$pa0
-aqp = bqp = arp = brp = 0.1
-mu.m = 0
-p.m  = 1e-6
-for(t in 1:nt){
+CI.fN = matrix(NA,5,NT)
+CI.fD = matrix(NA,5,NT)
+Xl = nIC         ## set IC
+pl = 1/n.sd^2
+Dbar = 0
+#mu0 = data$mu0   ## set disturbed state
+#pa0 = data$pa0
+#aqp = data$aq
+#bqp = data$bq
+#arp = data$ar
+#brp = data$br
+for(t in 1:NT){
   ## Forecast + Analysis
-  update = list(Y=Y[t],mu0=Xl,pa0=pl,aq=aqp[t],bq=bqp[t],ar=arp[t],br=brp[t],mu.m=mu.m[t],tau.m=p.m[t])
-  mod <- jags.model(file=textConnection(LinFilterParam),
+  update = list(Y=data$Y[t],
+                muIC=Xl,paIC=pl,
+                mu0=data$mu0,pa0=data$pa0,
+                #aq=aqp[t],bq=bqp[t],ar=arp[t],br=brp[t],
+                R=r, K=K,p = p.dist, q = 1/n.sd^2, r=1/obs.sd^2     ## hard coding these to start
+                )
+  mod <- jags.model(file=textConnection(FilterSSSD),
                    data=update,
-                  n.adapt=1000,n.chains=3,
-                  init=list(X.ic=Xlf))
- jdat <- coda.samples(mod,variable.names=c("m","r","q","X"),n.iter=10000) 
+                  n.adapt=1000,n.chains=3)#,
+#                  init=list(X.ic=Xlf))
+ jdat <- coda.samples(mod,variable.names=c("n","D","muN","muD"),n.iter=10000) 
 # plot(jdat)
   
   ## update parameters  
   dat = as.matrix(jdat)
-  Xl  = mean(dat[,"X"])
-  pl  = 1/var(dat[,"X"])
-  CI.LFP[,t] = quantile(dat[,"X"],c(0.025,0.5,0.975))
-  mq = mean(dat[,"q"])
-  vq = var(dat[,"q"])
-  aqp[t+1] = mq*mq/vq
-  bqp[t+1] = mq/vq
-  mr = mean(dat[,"r"])
-  vr = var(dat[,"r"])
-  arp[t+1] = mr*mr/vr
-  brp[t+1] = mr/vr
-  mu.m[t+1] = mean(dat[,"m"])
-  p.m[t+1] = 1/var(dat[,"m"])
+  Xl  = mean(dat[,"n"])
+  pl  = 1/var(dat[,"n"])
+  CI.fN[,t] = quantile(dat[,"n"],c(0.025,0.25,0.5,0.75,0.975))
+  CI.fD[,t] = quantile(dat[,"D"],c(0.025,0.25,0.5,0.75,0.975))
+  Dbar[t] = mean(dat[,"D"])
+#  mu0[t+1] = mean(dat[,"muD"])
+#  pa0[t+1] = 1/var(dat[,"muD"])
+
+#  mq = mean(dat[,"q"])
+#  vq = var(dat[,"q"])
+#  aqp[t+1] = mq*mq/vq
+#  bqp[t+1] = mq/vq
+#  mr = mean(dat[,"r"])
+#  vr = var(dat[,"r"])
+#  arp[t+1] = mr*mr/vr
+#  brp[t+1] = mr/vr
 }
 
 ```
 
-## Todo
+```{r}
+plot(0,0,xlim=xlim,ylim=c(0,1))
+ecoforecastR::ciEnvelope(time,CI.fD[1,],CI.fD[5,],col=col.alpha(4,0.5))
+ecoforecastR::ciEnvelope(time,CI.fD[2,],CI.fD[4,],col=4)
+lines(time,CI.fD[2,])
+```
 
--   Figure on what happens when a SDA model that doesn't include disturbance encounters disturbance
--   More detail on what a model w/ disturbance but EnKF does during disturbance
--   Get the iterative filter working to see how it compares to the other two
+
+```{r}
+## comparison to EnKF
+plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
+     ylab="LAI",xlab="time")
+polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
+  an0.stats[1, 1])), border = NA, col = '#FFBF6C')
+polygon(cbind(c(time, rev(time), 1), c(an.stats[2, ], rev(an.stats[4, ]),
+  an.stats[1, 1])), border = NA, col = ecoforecastR::col.alpha('#b2df8a',0.7))
+#ecoforecastR::ciEnvelope(1:NT,CIN[1,],CIN[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+
+lines(an0.stats[3,],col="orange",lwd=2)
+lines(an.stats[3,],col="#b2df8a",lwd=2)
+lines(CI.fSSSD[2,],col="blue",lwd=2)
+lines(Dbar,lwd=2)
+points(data$Y,pch=18,col=2)
+legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data","P(dist)"),
+       lwd=5,col=c("orange","#b2df8a","blue","red","black"))
+```
+
+
+## Todo
+-   Visualize bimodal forecast and analysis distributions through time for simple example
 -   Tweak model to have a simple C budget -- where does the C go when the model doesn't assimilate disturbance?
 -   Apply to SIPNET SDA
