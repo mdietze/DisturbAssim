@@ -7,6 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(rjags)
+library(ecoforecastR)
+library(tidyverse)
 ```
 
 Initial code for this started from the "Assimilation of disturbance" example in <https://github.com/EcoForecast/EF_BookCode/blob/master/Ch02_Logitic.Rmd> which itself derived from simple simulations and KF developed for a 2013 talk at the Ecological Society of America annual meeting.
@@ -361,6 +364,7 @@ Dbar = 0
 #bqp = data$bq
 #arp = data$ar
 #brp = data$br
+Analysis <- list()
 for(t in 1:NT){
   ## Forecast + Analysis
   update = list(Y=data$Y[t],
@@ -394,6 +398,10 @@ for(t in 1:NT){
 #  vr = var(dat[,"r"])
 #  arp[t+1] = mr*mr/vr
 #  brp[t+1] = mr/vr
+  
+  ## save Analysis posterior
+  Analysis[[t]] <- dat
+  
 }
 
 ```
@@ -405,9 +413,8 @@ ecoforecastR::ciEnvelope(time,CI.fD[2,],CI.fD[4,],col=4)
 lines(time,CI.fD[2,])
 ```
 
-
+### Comparision to EnKF
 ```{r}
-## comparison to EnKF
 plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
      ylab="LAI",xlab="time")
 polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
@@ -426,8 +433,37 @@ legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","dat
        lwd=5,col=c("orange","#b2df8a","blue","red","black"))
 ```
 
+### Ridgeline plot of Analysis
+```{r}
+## organize Analysis state var (n) into a wide format
+n.wide <- sapply(Analysis,function(x){x[,"n"]})
+colnames(n.wide) <- paste0("t",1:NT)
+n.wide <- as.data.frame(n.wide)
+
+## transform to a long format
+n.long <- tidyr::pivot_longer(n.wide[,xlim[1]:xlim[2]],
+                              cols=1:(diff(xlim)+1),
+                              names_to = "time",names_prefix = "t",
+                              values_to = "n")
+n.long$time <- as.numeric(n.long$time)
+
+## ridge plot
+ggplot(n.long) + aes(x=n,y=time,group=time) +
+  ggridges::geom_density_ridges(bandwidth = 0.02) +
+  labs(x = "LAI", y = "Time")
+
+## violin plot
+n.long %>%
+ filter(n >= 0 & n <= 8) %>%
+ ggplot() +
+ aes(x = "", y = n, group = time) +
+ geom_violin(adjust = 0.5, scale = "area", fill = "#0c4c8a") +
+ labs(x = "Time", y = "LAI") +
+ theme_minimal()
+
+```
+
 
 ## Todo
--   Visualize bimodal forecast and analysis distributions through time for simple example
 -   Tweak model to have a simple C budget -- where does the C go when the model doesn't assimilate disturbance?
 -   Apply to SIPNET SDA
