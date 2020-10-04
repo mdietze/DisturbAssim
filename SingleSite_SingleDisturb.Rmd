@@ -465,5 +465,16 @@ n.long %>%
 
 
 ## Todo
+-   Move forecast out of JAGS
 -   Tweak model to have a simple C budget -- where does the C go when the model doesn't assimilate disturbance?
 -   Apply to SIPNET SDA
+-   Calibrate state and transition probabilities for a single region
+-   Upgrade code to multinomial
+-   Add PFT switching
+-   Add ensemble weighting so that we can manage ensemble sizes
+-   Add "fusion" if a case becomes too rare to worry about
+-   Think about whether we need to add LULC state to state variables & how LULC state would be assimilated
+-   Test against subseasonal dynamics (e.g. distinguishing phenology from disturbance)
+-   investigate whether we need a "jumpback" capacity once disturbance event type and timing is resolved
+-   
+
