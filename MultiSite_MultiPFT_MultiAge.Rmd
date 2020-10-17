@@ -1,0 +1,27 @@
+---
+title: "MultiSite_MultiPFT_MultiAge"
+author: "Mike Dietze"
+date: "10/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Plan
+
+* Consider a PFT by age class matrix
+* An initial ensemble run of a model would generate IC predictions, and thus a (multivariate state) ensemble PDF of each class
+* Each pixel on a landscape could be assigned a probability of being in each of class based on `n` data constraints. For example a pixel with high LAI may be more likely for a range of forest age classes and unlikely for a grassland or recent disturbance. A high AGB associated with the same pixel would push the probability to older age forests, but it may be hard to distinguish 80-90, 90-100, 100-150, etc. so they may have similar weight.
+* Also store the posterior quantile associated with the most likely class as a check on fit -- if you're a bad fit to your most likely fit this means the model's missing something.
+* We then forward simulate the landscape to the next step. Each element in the PFTxAGE matrix has a probability of transitioning to the other, though many will be 0. Task is to update the per-pixel probabilities of being in each class, while simultaneously updating the system state.
+ + for most cases, additional information will increase the probability associated with a given age class
+ + Hopefully we capture aging naturally -- e.g. ~10% of a 10yr age bin should shift older
+ + Us what we learned at the single site scale to capture the probability of transition to a disturbed state or shift to a different PFT
+ + Might need to have multiple AGE 0 options if the transitions FROM are really different and predict different transitions TO. i.e. may need to start with all possible age 0 classes and will need to revisit patch fusion
+ + At the same time, need to do the Assimilation step for all ensemble members, using their weights (probabilities) appropriately in updating state. Need to make sure this doesn't do stupid things like locking in a class and preventing it from maturing
+ + Should try adding age class to the single site model to get ready for this
+ + Thankfully, not all transitions are possible, and not all are equally likely, so hoping this will put real, strong constraints on the problem
+ + Have to shift to treating p(disturbance) as a hierarchical model, where each year's posterior is a mixed effect (deterministic predictors + random variability) and then we update the model each year as we learn about disturbance drivers and as the probabilities shift (like Beckage fire paper, the underlying risk needs to evolve through time)
+
