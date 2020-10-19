@@ -463,9 +463,125 @@ n.long %>%
 
 ```
 
+## Foreward filter, separate process model
+
+In the previous code, both the forecast and analysis steps were done within JAGS. In this version we're pulling out the Forecast step and running that in R since (i) that's how most models work and (ii) it will allow us to more easily distinguish the Forecast prior and Analysis posteriors
+
+```{r}
+AnalysisSSSD <- "
+model{
+  ## prior
+  muN ~ dnorm(mufN,pfN)
+  muD ~ dnorm(mufD,pfD)
+  D ~ dbern(p)
+  ## Analysis
+  n <- D*muD + (1-D)*muN
+  Y ~ dnorm(n,r)
+}"
+## Storage
+CI.fN = matrix(NA,5,NT)
+CI.fD = matrix(NA,5,NT)
+Dbar = 0
+Analysis <- Forecast <- list()
+## set IC
+nMC = 5000
+Xl = nIC         
+pl = 1/n.sd^2
+Na = rnorm(nMC,Xl,n.sd)
+Nf = N*NA
+
+for(t in 1:NT){
+  ## Forecast 
+  d.prior <- rbinom(nMC,1,p.dist)   ## prior on disturbance status
+  sel <- !as.logical(d.prior)
+  Nf[!sel] <- rnorm(sum(d.prior),data$mu0,1/sqrt(data$pa0))  ## draw disturbed predictions
+  Nf[sel]  <- rnorm(sum(sel),Na[sel] + r*Na[sel]*(1-Na[sel]/K),n.sd) ## draw undisturbed
+  Nf[Nf < 0] <- 0 ## Tobit
+  
+  ## priors
+  priors <- list(p    = mean(d.prior),
+                 mufN = mean(Nf[sel]),
+                 mufD = mean(Nf[!sel]),
+                 pfN  = 1/var(Nf[sel]),
+                 pfD  = 1/var(Nf[!sel])
+                 )
+  Forecast[[t]] <- c(list(d.prior=d.prior,Nf=Nf),priors)
+  
+  ## Analysis
+  update = c(list(Y=data$Y[t],r=1/obs.sd^2),priors)
+  mod <- jags.model(file=textConnection(AnalysisSSSD),
+                   data=update,
+                  n.adapt=1000,n.chains=3)
+ jdat <- coda.samples(mod,variable.names=c("n","D","muN","muD"),n.iter=10000) 
+# plot(jdat)
+  
+  ## update parameters  
+  dat = as.matrix(jdat)
+  Xl  = mean(dat[,"n"])
+  pl  = 1/var(dat[,"n"])
+  CI.fN[,t] = quantile(dat[,"n"],c(0.025,0.25,0.5,0.75,0.975))
+  CI.fD[,t] = quantile(dat[,"D"],c(0.025,0.25,0.5,0.75,0.975))
+  Dbar[t] = mean(dat[,"D"])
+
+  ## save Analysis posterior
+  Analysis[[t]] <- dat
+  
+  ## draw new IC
+  Na <- sample(dat[,"n"],nMC,replace=TRUE)
+  
+}
+
+```
+
+```{r}
+## organize Analysis state var (n) into a wide format
+n.wide <- sapply(Analysis,function(x){x[,"n"]})
+colnames(n.wide) <- paste0("t",1:NT)
+n.wide <- as.data.frame(n.wide)
+
+## transform to a long format
+n.long <- tidyr::pivot_longer(n.wide[,xlim[1]:xlim[2]],
+                              cols=1:(diff(xlim)+1),
+                              names_to = "time",names_prefix = "t",
+                              values_to = "n")
+n.long$time <- as.numeric(n.long$time)
+
+## ridge plot
+ggplot(n.long) + aes(x=n,y=time,group=time) +
+  ggridges::geom_density_ridges(bandwidth = 0.02) +
+  labs(x = "LAI", y = "Time")
+
+## violin plot
+n.long %>%
+ filter(n >= 0 & n <= 8) %>%
+ ggplot() +
+ aes(x = "", y = n, group = time) +
+ geom_violin(adjust = 0.5, scale = "area", fill = "#0c4c8a") +
+ labs(x = "Time", y = "LAI") +
+ theme_minimal()
+```
+
+### Comparision to EnKF
+```{r}
+plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
+     ylab="LAI",xlab="time")
+polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
+  an0.stats[1, 1])), border = NA, col = '#FFBF6C')
+polygon(cbind(c(time, rev(time), 1), c(an.stats[2, ], rev(an.stats[4, ]),
+  an.stats[1, 1])), border = NA, col = ecoforecastR::col.alpha('#b2df8a',0.7))
+#ecoforecastR::ciEnvelope(1:NT,CIN[1,],CIN[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+
+lines(an0.stats[3,],col="orange",lwd=2)
+lines(an.stats[3,],col="#b2df8a",lwd=2)
+lines(CI.fSSSD[2,],col="blue",lwd=2)
+lines(Dbar,lwd=2)
+points(data$Y,pch=18,col=2)
+legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data","P(dist)"),
+       lwd=5,col=c("orange","#b2df8a","blue","red","black"))
+```
 
 ## Todo
--   Move forecast out of JAGS
 -   Tweak model to have a simple C budget -- where does the C go when the model doesn't assimilate disturbance?
 -   Apply to SIPNET SDA
 -   Calibrate state and transition probabilities for a single region
