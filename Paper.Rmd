@@ -1,0 +1,133 @@
+---
+title: "Disturbance Assimilation"
+author: "Michael Dietze"
+date: '`r Sys.Date()`'
+output:
+  html_document: 
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    keep_tex: true
+bibliography: bibliography.bibtex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Outline
+
+# Abstract
+
+# Intro
+
+**Borrow text from CMS proposals**
+
+1. The context: MRV and predicting Terrestrial C
+2. Status quo: LULC * look up table
+  + very coarse, doesn't capture spatiotemporal varibility
+  + rightly captures that disturbance and land use change both critical to C accounting and, more importantly, a place where we can exert some control
+3. Alternative: SDA
+  + models capture process
+  + data constrains (data driven, model as cov)
+  + data fusion
+  + seamless transition from reanalysis to nowcast to forecast [@Dietze2017a]
+  + Disturbance is exactly why you would want to nudge a model back to reality
+4. The problem: Conventional SDA doesn't capture jumps
+  + series of nudges
+  + potentially misattributes pools and fluxes
+  + "drags down" neighbors **no sims of this yet**
+5. The solution:
+  + assimilate P(dist)
+  + update C | dist
+6. This paper
+  + Illustration of problem
+  + Derivation Multinomial
+  + Simulated data experiments (known disturbance)
+  + Real-world example
+
+# Methods
+
+1. Illustration of problem
+2. Derivation Multinomial
+
+Conceptual figure
+
+3. Simulated data experiments (known disturbance)
+  + Single Site, Single Disturbance
+  + SSSD Multi Pool
+  + SS Multi-Disturbance w/ PFT switching
+  + Simple Multi-site: spatial cov
+4. Real-world examples
+  + Describe Model & PEcAn
+  + Calibrate state-and-transition prior
+    + Landtrendr
+    ftp://islay.ceoas.oregonstate.edu/change_agent_attribution
+  + Applications: PNW
+    + Logging
+    + Fire
+    + Land use transition (forest -> non?)
+
+Email to Robert:
+
+I need to extract some example time series for single pixels (e.g. AGB product) where the disturbance it is far enough in the past that there’s an interesting recovery trajectory but also where it’s not so early (so that the data assimilation has time to come into steady-state before the disturbance). From Landtrendr itself I’m looking to know when you attributed the year, severity, and cause so we can see if our assimilation is getting it “right”. Bonus would be if you could suggest places where you know there’s ground data we could use to validate the model (disturbances at flux towers, LTER sites, FIA plots, etc).
+
+<!---
+```{r child = 'methods.Rmd'}
+```
+--->
+
+# Results
+
+1. Simulated data experiments (known disturbance)
+  + Single Site, Single Disturbance
+
+Figures showing the current problem, solution, and that we've got a genuine multimodal distribution and P(dist)
+
+  + SSSD Multi Pool
+
+Figures showing pool cov, C accounting / attribution 
+  
+  + SS Multi-Disturbance w/ PFT switching
+
+Figure showing PFT switching vs not, ability to detect disturbance type  
+
+  + Simple Multi-site: spatial cov
+  
+Figure showing "dragging down" of neighbors in conventional and breaking of COV in Multinomial
+  
+2. Real-world examples
+  + Calibrate state-and-transition prior
+    * data: (samples from) maps of disturbance type by year
+    * model: Multinomial Dirlichet
+
+Figure showing map and estimated priors
+  
+  + Applications
+    + Logging
+    + Fire
+    + Land use transition (forest -> non?)
+
+# Discussion
+
+* Interpretation
+  * TBD based on results
+
+* Implications  (borrow text from CMS proposals)
+  * Improving MRV
+  * Recovery forecasting
+  * Disturbance nowcasting
+    * requires reducing temporal resolution
+
+* Future directions
+  * Disturbance priors need to be spatially heterogenous and evolve temporally
+    * Connect to state-and-transition literature
+  * Scaling up -> spatially implicit
+    * ED2
+    * Contagion
+
+# Acknowledgements
+
+NASA CMS, PEcAn, NEFI
+
+# Bibliography
