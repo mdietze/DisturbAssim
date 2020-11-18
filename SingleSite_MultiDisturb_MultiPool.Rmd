@@ -1,0 +1,275 @@
+---
+title: "Single Site, Multiple Disturbance, MultiPool"
+author: "Mike Dietze"
+date: "11/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(BayesianTools)
+library(magrittr)
+set.seed(42)
+## helper functions
+source("multi.ens.adj.R")
+source("disturbance.R")
+```
+
+## Todo
+
+* Multinomial with distinct disturbances
+* Multinomial with distinct disturbances that are different PFTs
+* Multinomial with initially-overlapping disturbances that then diverge
+
+## SET-UP
+
+```{r}
+ne = 200     ## number of ensemble members
+NT = 25      ## number of years
+nt = 365*NT
+time = 1:nt
+
+## DRIVERS
+nd   = 31 ## number of driver ensembles
+PAR <- matrix(NA,nd,nt)
+for(i in 1:nd){
+  PAR[i,] <- VSEMcreatePAR(time)  
+}
+
+## Parameters
+refPars <- VSEMgetDefaults()
+refPars$lower[9:11] = 1
+np = 50
+sigmaP = diag((refPars$upper - refPars$lower)/10)^2 ## assume range is +/- 5 SD
+Theta <- as.data.frame(mvtnorm::rmvnorm(np,refPars$best,sigmaP))
+colnames(Theta) <- rownames(refPars)
+par(mfrow=c(3,4))
+for(i in 1:11){
+  Theta[Theta[,i] < refPars$lower[i] , i] <- refPars$lower[i]
+  Theta[Theta[,i] > refPars$upper[i] , i] <- refPars$upper[i]
+  hist(Theta[,i],main=colnames(Theta)[i])
+}
+
+## initial conditions
+met = sample.int(nd,ne,replace=TRUE)
+par = sample.int(np,ne,replace=TRUE)
+Na <- matrix(NA,ne,3)
+for(i in 1:ne){
+  Na[i,] = VSEM(as.numeric(Theta[par[i],]),PAR = PAR[met[i],])[nt,2:4]
+}
+Na.orig = Na
+par(mfrow=c(1,3))
+hist(Na[,1],main="Cleaf")
+hist(Na[,2],main="Csoil")
+hist(Na[,3],main="Cstem")
+```
+
+# Multinomial with distinct disturbances
+
+## set up storage, parameters, pseudodata
+```{r}
+## hard coded 
+Q = diag(c(0.1,0.1,0.1)) ## process error
+R = diag(c(.25,10,1))      ## observation error
+THETA <- as.matrix(Theta[par,]) ## ensemble parameters
+
+## disturbance
+mu0 <- matrix(c(0.1,0.1,
+                0.1,0.95),2,2)    ## mean leaf & stem biomass after disturbance as % of original
+V1  <- diag(c(0.15,0.25))^2       ## var in post disturbance leaf and stem biomass (one for each type)
+V2  <- diag(c(0.15,0.01))^2
+V0  <- abind::abind(V1,V2,along=3)       ## combine covs
+alloc.soil = 0.25        ## fraction of removed C that goes in the soil
+p.dist = c(0.9,0.05,0.05)  ## Multinomial transition probability; first is no change
+
+## storage
+Dbar = 0
+Analysis <- Forecast <- list()
+Nmu = NmuK = NfK = Nf = Na*NA
+
+## pseudodata
+No = matrix(NA,NT,3)                   ## storage for observed state
+Ntrue = matrix(NA,NT,3)                ## storage for latent "true" state
+true = 42                              ## reference ensemble member
+D.true = rep(0,NT)                     ## true disturbance timeseries
+D.true[10] = 1                         ## prescribe a disturbance
+refpar = as.numeric(Theta[par[true],]) ## grab the "true" parameters
+refpar[9:11] = Na[true,]               ## set initial biomass pools
+for(t in 1:NT){
+  tsel <- (t-1)*365 + 1:365            ## select 1 yr of met  
+  ref.mu = VSEM(refpar,PAR[met[true],tsel])[365,2:4]    ## forward simulation
+  ref.f  = mvtnorm::rmvnorm(1,ref.mu,Q)## process error
+  if(D.true[t]){
+      ref.f = disturbance2(ref.f,type=D.true[t])
+  }
+  ref.f = tobit(ref.f)
+  refpar[9:11] = ref.f                 ## update IC for next iteration
+  Ntrue[t,] = ref.f
+  No[t,] = tobit(mvtnorm::rmvnorm(1,ref.f,R)) ## observation error
+}
+par(mfrow=c(3,1))
+plot(No[,1])
+plot(No[,2])
+plot(No[,3])
+```
+
+```{r,echo=FALSE,results='hide',message=FALSE}
+AnalysisSSMDMP <- "  ## SingleSite MultiDisturbance MultiPool
+model{
+  ## prior
+  for(i in 1:N){
+    x[1:3,i]  ~ dmnorm(muf[,i],pf[,,i]) ## forecast priors for different cases
+  }
+#  rho[] ~ dmulti(p[], 1)          ## disturbance probability
+## dmulti throws error, so decomposing by hand
+ rho[2] ~ dbern(p[2])
+ rho[3] ~ dbin(p[3]/(1-p[2]),1-rho[2])
+ rho[1] <- 1 - rho[2] - rho[3]
+  ## Analysis 
+  X <- rho[1]*x[1:3,1] + rho[2]*x[1:3,2] + rho[3]*x[1:3,3] ## select between cases
+#  X <- x%*%rho
+  Y ~ dmnorm(X,R)                       ## Observation error
+}"
+
+Na <- Na.orig
+muf <- matrix(NA,3,3)
+pf  <- array(0,c(3,3,3)) ## 3rd variable is class
+for(t in 1:NT){
+  
+  tsel <- (t-1)*365 + 1:365               ## Select days from driver files
+  
+  ## update IC
+  THETA[,9:11]  <- Na    ## Multinomial
+
+  ## Forecast 
+  for(i in 1:ne){
+    fx       = VSEM(THETA[i,], PAR = PAR[met[i],tsel]) ## deterministic simulation
+    Nmu[i,]  =  fx[365,2:4]                         ## state variables at time of assim
+    Nf[i,]   =  mvtnorm::rmvnorm(1,Nmu[i,],Q)
+  }
+  
+  ## Disturbance
+  d.prior <- rmultinom(ne,1,p.dist)             ## prior on disturbance status
+  d.class <- apply(d.prior,2,which.max)
+  for(d in 2:3){  ## loop over disturbance classes
+    sel.dist <- which(d.class == d)              ## select disturbed ensemble members
+    if(length(sel.dist)>3){
+      for(j in sel.dist){                      ## run disturbance model
+        Nf[j,]  = disturbance2(Nf[j,],type = d-1)
+      }
+      muf[,d]  = colMeans(Nf[sel.dist,])
+      pf[,,d] =  try(solve(var(Nf[sel.dist,])))
+    } 
+    if(sum(sel.dist) <= 3 || class(pfD) == "try-error") {   ## backup values if the ensemble stats fail
+      muf[,d] = colMeans(Nf[d.class==1,])*c(mu0[1,d-1],1,mu0[2,d-1])
+      pf[,,d]  = solve(diag(c(0.15,0,0.15)^2))
+    }
+  }
+  ## set undisturbed
+  sel.dist = which(d.class == 1)
+  muf[,1] = colMeans(Nf[sel.dist,])
+  pf[,,1] = solve(var(Nf[sel.dist,]))
+  Nf <- tobit(Nf)
+
+  ## priors
+  priors <- list(p   = rowMeans(d.prior),         ## disturbance rate
+                 muf = muf,    ## forecast means
+                 pf  = pf      ## forecast precision
+  )
+  Forecast[[t]] <- c(list(d.prior=d.prior,Nf=Nf),priors)
+  
+  ## Analysis
+  update = c(list(Y=No[t,],R=solve(R),N=3),priors)
+  mod <- rjags::jags.model(file=textConnection(AnalysisSSMDMP),
+                           data=update,
+                           n.adapt=1000,n.chains=3)
+  jdat <- rjags::coda.samples(mod,n.iter=2000) ## burn-in 
+  jdat <- rjags::coda.samples(mod,variable.names=c("X","rho","x"),n.iter=10000) 
+  
+  ## update parameters & save Analysis posterior
+  dat = as.matrix(jdat)
+  Xsel <- grep(pattern="^X",x=colnames(dat))
+  
+  ## draw new IC
+  d.post <- dat[,grep(pattern="rho",x=colnames(dat))]
+  d.class.post <- apply(d.post,1,which.max)
+  Na <- multi.ens.adj(
+          Xf   = Nf,
+          cf   = d.class,
+          mu.f = t(priors$muf),
+          Pf   = abind::abind(    ## find a way to do this with apply(priors$pf,3,solve)
+                    solve(priors$pf[,,1]),
+                    solve(priors$pf[,,2]),
+                    solve(priors$pf[,,3]),
+                 along=3),
+          Xa = dat[,Xsel],
+          ca = d.class.post)
+  Ca <- Na[,1] ## updated class assignments
+  Na <- tobit(Na[,-1])
+#  sel.ic <- sample.int(nrow(dat), ne, replace=TRUE)
+#  Na <- dat[sel.ic,nsel]
+  Analysis[[t]] <- list(MCMC=dat,
+                        Na = Na,
+                        Ca = Ca)
+}
+
+```
+
+
+### time series
+
+```{r}
+post.dist = sapply(X=Analysis,function(y){
+  colMeans(y$MCMC[,grep("rho",colnames(y$MCMC))])
+})
+plot(post.dist[1,],ylim=c(0,1),type='l')
+lines(post.dist[2,],col=2)
+lines(post.dist[3,],col=3)
+legend("topright",legend=c("undisturbed","harvest","defoliation"),
+       lwd=2,col=1:3)
+
+pool.names=c("Cleaf","Csoil","Cstem")
+for(i in 1:3){
+  
+  CI.Na = sapply(X = Analysis,function(y){
+    x = y$MCMC
+    sel.n = which(colnames(x) == paste0("X[",i,"]"))
+    quantile(x[,sel.n],c(0.025,0.5,0.975))
+  })
+  #CI.Na = sapply(X = Analysis,function(x){
+  #  apply(x,2,quantile,c(0.025,0.975))
+  #})
+  
+  plot(No[,i],
+       #ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
+       ylab=pool.names[i],xlab="time")
+  ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[3,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
+  lines(CI.Na[2,],col="#b2df8a",lwd=2)
+  lines(Ntrue[,i],lty=2,lwd=2)
+}
+```
+### Ensemble adj at time of disturbance
+
+```{r,fig.asp=1,fig.width=3}
+#par(mfrow=c(1,3))
+
+plot(Analysis[[10]]$Na[,1],Analysis[[10]]$Na[,3],pch=Analysis[[10]]$Ca,col=ecoforecastR::col.alpha("red",alpha=0.5),
+     ylim=range(Forecast[[10]]$Nf[,3]),
+     xlim=range(Forecast[[10]]$Nf[,1]),
+     xlab=pool.names[1],ylab=pool.names[3],
+     cex.lab=1.25,asp = 1)
+points(Forecast[[10]]$Nf[,1],Forecast[[10]]$Nf[,3],cex=0.5)
+points(No[10,1],No[10,3],cex=3,col=ecoforecastR::col.alpha("purple",alpha = 0.75),pch=18)
+
+## ensemble adjustment
+sel.a=sample.int(ne,10)
+arrows(Forecast[[10]]$Nf[sel.a,1],Forecast[[10]]$Nf[sel.a,3],
+       Analysis[[10]]$Na[sel.a,1],Analysis[[10]]$Na[sel.a,3],length = 0.1,lwd = 0.5)   
+legend("topleft",
+       legend=c("Forecast","Analysis","Data"),
+       pch=c(1,3,18),col=c(1,2,"purple"),
+       cex = 1.5)
+
+```
+
+
