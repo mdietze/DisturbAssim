@@ -16,6 +16,7 @@
 multi.ens.adj<-function(Xf, cf, mu.f, Pf, Xa, ca){
   
   if(FALSE){  ## set params
+    ## single
     Xf = Nf
     mu.f = rbind(priors$mufN,priors$mufD)
     Pf   = abind::abind(solve(priors$pfN),
@@ -24,6 +25,17 @@ multi.ens.adj<-function(Xf, cf, mu.f, Pf, Xa, ca){
     cf = d.prior
     Xa = dat[,nsel]
     ca = dat[,"D"]
+    ## multi class
+    Xf   = Nf
+    cf   = d.class
+    mu.f = t(priors$muf)
+    Pf   = abind::abind(    ## find a way to do this with apply(priors$pf,3,solve)
+      solve(priors$pf[,,1]),
+      solve(priors$pf[,,2]),
+      solve(priors$pf[,,3]),
+      along=3)
+    Xa = dat[,Xsel]
+    ca = d.class.post
   }
   if(FALSE){ ## figures
     plot(density(Xf[,1]),main="")

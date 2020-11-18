@@ -3,13 +3,33 @@
 1. Illustration of problem
 2. Derivation Multinomial
 
+*Priors*
+
+  $$X^L_k \sim MVN(\vec{\mu}_{f,k},P_{f,k})$$
+  $$\vec{\rho} \sim Multinomial(\vec{p})$$ 
+*Process Model*
+
+  $$X = X^L \vec{\rho}$$
+  
+*Likelihood*
+  $$Y \sim MVN(X,R)$$
+### Ensemble Adjustment
+
+[@Anderson2001]
+
+
 Conceptual figure
 
 3. Simulated data experiments (known disturbance)
-  + Single Site, Single Disturbance
-  + SSSD Multi Pool
-  + SS Multi-Disturbance w/ PFT switching
+  + x Single Site, Single Disturbance  (add a case where EnKF has disturb but it's more rare)
+  + x SSSD Multi Pool
+  + x SS Multi-Disturbance - distinct
+  + SS Multi-Disturbance w/ distinct, PFT switching
+  + SSMD - initially overlapping but diverge
+      * how to handle updating of assignment based on new information?
+  + SSMD - transition probabilities change with state
   + Simple Multi-site: spatial cov
+  + rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
 4. Real-world examples
   + Describe Model & PEcAn
   + Calibrate state-and-transition prior

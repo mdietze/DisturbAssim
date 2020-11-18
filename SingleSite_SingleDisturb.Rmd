@@ -38,7 +38,7 @@ for(t in 2:NT){
   if(d[t]) n[t] = abs(rnorm(1,n0,0.5))
 }
 
-plot(time,n,type='l',ylim=range(n),xlim=xlim,xlim=xlim,ylab="LAI",lwd=3)
+plot(time,n,type='l',ylim=range(n),xlim=xlim,ylab="LAI",lwd=3)
 obs.sd = 0.75
 n.true=n
 n.obs = rnorm(NT,n.true,obs.sd)
@@ -67,7 +67,7 @@ yrng = c(0,8) #range(ne0)
 n0.stats = apply(ne0,2,quantile,c(0.025,0.5,0.975))
 plot(time,n.obs,type='n',ylim=yrng,xlim=xlim)
 polygon(cbind(c(time, rev(time), 1), c(n0.stats[1, ], rev(n0.stats[3, ]),
-  n.stats[1, 1])), border = NA, col = 'lightblue')
+  n0.stats[1, 1])), border = NA, col = 'lightblue')
 lines(time,n0.stats[2,],lwd=2,col="blue4")
 points(time,n.obs,pch=18,col=2,cex=1.5)
 ```
@@ -415,7 +415,7 @@ lines(time,CI.fD[2,])
 
 ### Comparision to EnKF
 ```{r}
-plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
+plot(data$Y,ylim = range(rbind(CI.fN,data$Y)),xlim=xlim,type='n',
      ylab="LAI",xlab="time")
 polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
   an0.stats[1, 1])), border = NA, col = '#FFBF6C')
@@ -426,7 +426,8 @@ ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0
 
 lines(an0.stats[3,],col="orange",lwd=2)
 lines(an.stats[3,],col="#b2df8a",lwd=2)
-lines(CI.fSSSD[2,],col="blue",lwd=2)
+#lines(CI.fSSSD[2,],col="blue",lwd=2)
+lines(CI.fN[3,],col="blue",lwd=2)
 lines(Dbar,lwd=2)
 points(data$Y,pch=18,col=2)
 legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data","P(dist)"),
@@ -563,7 +564,7 @@ n.long %>%
 
 ### Comparision to EnKF
 ```{r}
-plot(data$Y,ylim = range(rbind(CIN,data$Y)),xlim=xlim,type='n',
+plot(data$Y,ylim = range(rbind(CI.fN,data$Y)),xlim=xlim,type='n',
      ylab="LAI",xlab="time")
 polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
   an0.stats[1, 1])), border = NA, col = '#FFBF6C')
@@ -574,7 +575,8 @@ ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0
 
 lines(an0.stats[3,],col="orange",lwd=2)
 lines(an.stats[3,],col="#b2df8a",lwd=2)
-lines(CI.fSSSD[2,],col="blue",lwd=2)
+#lines(CI.fSSSD[2,],col="blue",lwd=2)
+lines(CI.fN[3,],col="blue",lwd=2)
 lines(Dbar,lwd=2)
 points(data$Y,pch=18,col=2)
 legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data","P(dist)"),
