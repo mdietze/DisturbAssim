@@ -1,0 +1,30 @@
+# Discussion
+
+* Interpretation
+  * TBD based on results
+
+* Issues
+  * Need a more detail exploration of rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
+  * Would like to add look-back capabilities (ensemble backward smoothing) to update assignments based on more recent info
+    * related: with multi-PFT need to check for, and protect against, long term PFT leakage
+  * Computational demand it high for problems with many grid cells
+    * Efficient (semi-)analytic approximations or LUT
+    * work at larger spatial scales and account for subgrid disturbance heterogeneity implicitly [@McCabe]
+  * Multisite needs a way of estimating $\rho$ by site with cross site correlations, rather than unique $\rho$ for all permutations
+    * for $\rho$ handle the covariances of nearby sites -- disturbance in one usually increases the probability of disturbance in others
+    * similarly, need to be able to compose Multisite $\mu_f$ and $P_f$, from individual site values with reasonable approximations of cross-[site x pool] correlations
+
+* Implications  (borrow text from CMS proposals)
+  * Improving MRV
+  * Recovery forecasting
+  * Disturbance nowcasting
+    * requires reducing temporal resolution
+
+* Future directions
+  * Disturbance priors need to be spatially heterogenous and evolve temporally
+    * Connect to state-and-transition literature
+  * Scaling up -> spatially implicit
+    * ED2
+    * Contagion
+
+

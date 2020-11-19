@@ -81,23 +81,9 @@ Figure showing map and estimated priors
     + Fire
     + Land use transition (forest -> non?)
 
-# Discussion
-
-* Interpretation
-  * TBD based on results
-
-* Implications  (borrow text from CMS proposals)
-  * Improving MRV
-  * Recovery forecasting
-  * Disturbance nowcasting
-    * requires reducing temporal resolution
-
-* Future directions
-  * Disturbance priors need to be spatially heterogenous and evolve temporally
-    * Connect to state-and-transition literature
-  * Scaling up -> spatially implicit
-    * ED2
-    * Contagion
+<!---- DISCUSSION --->
+```{r child = 'discussion.Rmd'}
+```
 
 # Acknowledgements
 

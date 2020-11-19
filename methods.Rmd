@@ -6,7 +6,7 @@
 *Priors*
 
   $$X^L_k \sim MVN(\vec{\mu}_{f,k},P_{f,k})$$
-  $$\vec{\rho} \sim Multinomial(\vec{p})$$ 
+  $$\vec{\rho} \sim Multinomial(1,\vec{p})$$ 
 *Process Model*
 
   $$X = X^L \vec{\rho}$$
@@ -17,6 +17,22 @@
 
 [@Anderson2001]
 
+*reassignment of classes*
+
+To reassign forecasted ensemble members to new disturbance classes we first identify those that decreased between the prior probability, $p_k$, and the posterior frequency, $\bar{\rho}_k$.
+
+$$\delta p_k = max\{0,\bar{\rho}_k-p_k \}$$
+
+Classes that decreased in relative abundance are reassigned to new classes according to a Multinomial draw
+
+$$c_{A|k} = Multinomial\left( n_k, {{\delta p}\over{\sum \delta p}}  \right)$$ 
+
+
+
+*Ensemble adjustment by class*
+
+
+
 
 Conceptual figure
 
@@ -24,11 +40,13 @@ Conceptual figure
   + x Single Site, Single Disturbance  (add a case where EnKF has disturb but it's more rare)
   + x SSSD Multi Pool
   + x SS Multi-Disturbance - distinct
-  + SS Multi-Disturbance w/ distinct, PFT switching
+  + x SS Multi-Disturbance w/ distinct, PFT switching
+      * mention parallel PFT ensembles
+      * need to protect against long-term PFT leakage; related to more general need to "look back"
+  + Simple Multi-site: spatial cov
   + SSMD - initially overlapping but diverge
       * how to handle updating of assignment based on new information?
   + SSMD - transition probabilities change with state
-  + Simple Multi-site: spatial cov
   + rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
 4. Real-world examples
   + Describe Model & PEcAn
