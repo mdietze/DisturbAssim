@@ -36,6 +36,18 @@ multi.ens.adj<-function(Xf, cf, mu.f, Pf, Xa, ca){
       along=3)
     Xa = dat[,Xsel]
     ca = d.class.post
+    ## two site
+    Xf   = cbind(Nf[,,1],Nf[,,2])
+    cf   = d.class+1
+    mu.f = t(priors$muf)
+    Pf   = abind::abind(    ## find a way to do this with apply(priors$pf,3,solve)
+      solve(priors$pf[,,1]),
+      solve(priors$pf[,,2]),
+      solve(priors$pf[,,3]),
+      solve(priors$pf[,,4]),
+      along=3)
+    Xa = dat[,Xsel]
+    ca =d.class.post
   }
   if(FALSE){ ## figures
     plot(density(Xf[,1]),main="")

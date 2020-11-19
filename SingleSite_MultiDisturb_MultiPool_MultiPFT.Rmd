@@ -17,7 +17,6 @@ source("disturbance.R")
 
 ## Todo
 
-* Multinomial with distinct disturbances that are different PFTs
 * Multinomial with initially-overlapping disturbances that then diverge
 
 ## SET-UP

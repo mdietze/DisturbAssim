@@ -26,3 +26,19 @@ disturbance2 <- function(x,type){ ## x = Bleaf, Bsoil, Bstem
   removal <- residual*(1-alloc.soil)
   return(x)
 }
+
+# random correlated bernouli
+rcbern <- function(p,rho){
+  
+  ## calculate cov
+  D = as.matrix(dist(seq_along(mu),diag = TRUE,upper = TRUE))
+  SIGMA <- 1/(1-rho^2)*rho^D
+  
+  ## draw rMVN
+  x = mvtnorm::rmvnorm(1,rep(0,length(p)),SIGMA)
+  
+  ## inverse distribution transform
+  y = pnorm(x)
+  qbinom(y,1,p)
+  
+}
