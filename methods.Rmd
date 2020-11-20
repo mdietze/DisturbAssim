@@ -36,23 +36,50 @@ $$c_{A|k} = Multinomial\left( n_k, {{\delta p}\over{\sum \delta p}}  \right)$$
 
 Conceptual figure
 
+
 3. Simulated data experiments (known disturbance)
+  + describe model
   + x Single Site, Single Disturbance  (add a case where EnKF has disturb but it's more rare)
   + x SSSD Multi Pool
   + x SS Multi-Disturbance - distinct
   + x SS Multi-Disturbance w/ distinct, PFT switching
       * mention parallel PFT ensembles
       * need to protect against long-term PFT leakage; related to more general need to "look back"
-  + Simple Multi-site: spatial cov
+  + x Simple Multi-site: spatial cov
   + SSMD - initially overlapping but diverge
       * how to handle updating of assignment based on new information?
   + SSMD - transition probabilities change with state
   + rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
 4. Real-world examples
-  + Describe Model & PEcAn
   + Calibrate state-and-transition prior
     + Landtrendr
-    ftp://islay.ceoas.oregonstate.edu/change_agent_attribution
+    http://emapr.ceoas.oregonstate.edu/pages/data/viz/index.html
+    + Location:
+    tile h03v04
+xmin       : -2115585 
+xmax       : -1965585 
+ymin       : 2564805 
+ymax       : 2714805 
+Upper Left  (-2115585.000, 2714805.000) (123d 6'32.29"W, 44d41'17.09"N)
+Lower Left  (-2115585.000, 2564805.000) (122d35' 7.51"W, 43d23'46.18"N)
+Upper Right (-1965585.000, 2714805.000) (121d16'45.91"W, 45d 3'17.45"N)
+Lower Right (-1965585.000, 2564805.000) (120d47'15.95"W, 43d45'18.18"N)
+Center      (-2040585.000, 2639805.000) (121d56'25.42"W, 44d13'35.07"N)
+> res(cover)
+[1] 30 30
+> crs(cover)
+CRS arguments:
+ +proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83
++units=m +no_defs 
+    + Biomass [@Kennedy2018]
+      1990-2017
+    + Cover
+      1990-2017
+    + Disturbance
+      1984-2011
+      - nearest neighbor resampled to same as cover
+    + LAI??
+  + Calibrate model
   + Applications: PNW
     + Logging
     + Fire

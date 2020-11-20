@@ -46,7 +46,7 @@ for(i in 1:11){
 
 ## initial conditions
 ## spin up
-ne = 500
+ne = 1000
 met = sample.int(nd,ne,replace=TRUE)
 par = sample.int(np,ne,replace=TRUE)
 Na <- matrix(NA,ne,3)
@@ -72,7 +72,7 @@ THETA = abind::abind(THETA,THETA,along = 3)  ## n=2 sites
 mu0 <- c(1,1)            ## mean leaf & stem biomass after disturbance
 V0  <- diag(c(0.15,0.25))^2## var in post disturbance leaf and stem biomass
 alloc.soil = 0.25        ## fraction of removed C that goes in the soil
-p.dist = 0.05
+p.dist = 0.025
 
 ## storage
 Dbar = 0
@@ -135,7 +135,7 @@ THETAK <- THETA
 d.prior = matrix(nrow=ne,ncol=2)
 muf <- matrix(NA,3*nsite,4)
 pf  <- array(0,c(3*nsite,3*nsite,4)) ## 3rd variable is class
-for(t in 1:NT){
+for(t in 1:10){
   
   tsel <- (t-1)*365 + 1:365               ## Select days from driver files
   
@@ -285,7 +285,7 @@ for(i in 1:6){
   ecoforecastR::ciEnvelope(1:ncol(CI.EnKF),CI.EnKF[1,],CI.EnKF[3,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
   lines(CI.EnKF[2,],col="#b2df8a",lwd=2)
   ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[3,],col=ecoforecastR::col.alpha('blue',0.5))
-  lines(CI.EnKF[2,],col="blue",lwd=2)
+  lines(CI.Na[2,],col="blue",lwd=2)
   abline(v=10)  
   lines(Ntrue[,i],lty=2,lwd=2)
 }
