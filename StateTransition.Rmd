@@ -1,0 +1,95 @@
+---
+title: "State & Transition"
+author: "Michael Dietze"
+date: "11/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(raster)
+```
+
+## Objectives
+
+* Use data on land cover, disturbance, and biomass to calibrate a simple state and transition model to drive disturbance probabilities for real-world examples
+* set up points and time series for assimilation examples
+
+Metadata: downloaded tile_h03v04 from http://emapr.ceoas.oregonstate.edu/pages/data/viz/index.html on 11/19/2020
+
+## load data
+
+```{r}
+# cover
+cover = raster("conus_land_cover_ARD_tile_h03v04/conus_land_cover_ARD_tile_h03v04.tif")
+extent(cover)
+nlayers(cover)
+res(cover)
+crs(cover)
+image(cover)
+
+# disturbance
+dis.processed = "dis.h03v04.RData"
+if(file.exists(dis.processed)){
+  load(dis.processed)
+} else {
+  ## process disturbance data to match cover's extent and resolution
+  dis = raster("Cmonster_disturbance_class_ARD_tile_h03v04/Cmonster_disturbance_class_ARD_tile_h03v04.tif")
+  extent(dis)
+  nlayers(dis)
+  res(dis)
+  crs(dis)
+
+  ## match disturbance to cover
+  dis <- raster::resample(dis,cover,method="ngb")
+  save(dis,file=dis.processed)
+  
+  compareRaster(dis, cover, res = TRUE)
+  compareRaster(dis,cover,extent = TRUE)
+}
+
+```
+
+
+```{r}
+### biomass
+#biomass = raster("conus_biomass_ARD_tile_h03v04/conus_biomass_ARD_tile_h03v04.tif")
+#extent(biomass)
+#res(biomass)
+#nlayers(biomass)
+#summary(biomass)
+```
+
+## estimate cover frequencies, select those of interest
+```{r}
+f = freq(cover)
+## most frequent class is 42 = evergreen forest
+
+nbands(cover)
+b = bandnr(cover)
+
+cvr = getValues(cover)
+cvr = as.matrix(cover[[1]])
+
+```
+
+
+## Estimate disturbance probability for each cover class
+```{r}
+fd = freq(dis)
+
+#### disturbance aggregations ####
+
+## 
+dis[dis==60] <- 
+
+```
+
+
+## Determine transitions (cover / pft)
+
+
+## Reduce dimensionality, save
+
+
+## select sites of interest, save
