@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(raster)
+options(scipen=999)
 ```
 
 ## Objectives
@@ -22,6 +23,8 @@ Metadata: downloaded tile_h03v04 from http://emapr.ceoas.oregonstate.edu/pages/d
 ```{r}
 # cover
 cover = raster("conus_land_cover_ARD_tile_h03v04/conus_land_cover_ARD_tile_h03v04.tif")
+covS  = stack("conus_land_cover_ARD_tile_h03v04/conus_land_cover_ARD_tile_h03v04.tif")
+ctime = 1990:2017
 extent(cover)
 nlayers(cover)
 res(cover)
@@ -34,11 +37,13 @@ if(file.exists(dis.processed)){
   load(dis.processed)
 } else {
   ## process disturbance data to match cover's extent and resolution
-  dis = raster("Cmonster_disturbance_class_ARD_tile_h03v04/Cmonster_disturbance_class_ARD_tile_h03v04.tif")
-  extent(dis)
-  nlayers(dis)
-  res(dis)
-  crs(dis)
+  #dis = raster("Cmonster_disturbance_class_ARD_tile_h03v04/Cmonster_disturbance_class_ARD_tile_h03v04.tif")
+  #extent(dis)
+  #nlayers(dis)
+  #res(dis)
+  #crs(dis)
+  
+  disS = stack(x = "Cmonster_disturbance_class_ARD_tile_h03v04/Cmonster_disturbance_class_ARD_tile_h03v04.tif")
 
   ## match disturbance to cover
   dis <- raster::resample(dis,cover,method="ngb")
@@ -53,10 +58,11 @@ if(file.exists(dis.processed)){
 
 ```{r}
 ### biomass
-#biomass = raster("conus_biomass_ARD_tile_h03v04/conus_biomass_ARD_tile_h03v04.tif")
+biomass = raster("conus_biomass_ARD_tile_h03v04/conus_biomass_ARD_tile_h03v04.tif")
+bioS = stack("conus_biomass_ARD_tile_h03v04/conus_biomass_ARD_tile_h03v04.tif")
 #extent(biomass)
 #res(biomass)
-#nlayers(biomass)
+nlayers(bioS)
 #summary(biomass)
 ```
 
@@ -73,23 +79,314 @@ cvr = as.matrix(cover[[1]])
 
 ```
 
+Disturbance class info from Robert Kennedy (email 2020-11-24)
+```
+AGENTS
+ = {
+    1:   'Undisturbed',
+    10:  'Unkwn Agent',
+    11:  'Other ',
+    20:  'Clearcut',
+    21:  'Partial Harvest',
+    22:  'Salvage',
+    30:  'Development',
+    31:  'Road',
+    40:  'Fire',
+    50:  'Insect/Disease',
+    51:  'MPB-29',
+    52:  'MPB-239',
+    53:  'WSB-29',
+    54:  'WSB-239',
+    61:  'Water',
+    62:  'Wind',
+    70:  'Avalanche-Chute',
+    71:  'Avalanche-Runout',
+    72:  'Debris Flow',
+    73:  'Landslide',
+    100: 'Ukn Slow Disturbance',
+    110: 'Ukn Abrupt Disturbance',
+    160: 'Recovery',
+    200: 'No Vis Change',
+    201: 'False Change',
+    254: 'Err No Code',
+    255: 'Err Undefined'
+}
+
+Classes 1 through 50 and 61-73 are based on patches labeled using our methodology (like that 2015 paper you found) to link interpreted patches to agents using random forests.  Unknown agent is a confirmed change that the interpret saw but couldn't attribute.  
+51-54 are special cases -- mountain pine beetle and western spruce budworm -- that we took from my former PhD student's work to link ADS data to our time-series stuff.  
+Classes 200 and 201 are also based on the interpreter rules for patches -- if they could not determine that there was a change, or if they could determine that the likely change was false -- like a seasonality or snow issue.  Basically both are "no change"
+
+Classes 100-160 are based on pixel-level labels based on the temporal signature alone.  They are smaller than our minimum mapping unit of 11 pixels. 
+```
+
 
 ## Estimate disturbance probability for each cover class
 ```{r}
+dtime = 1985:2012
 fd = freq(dis)
+fdS = freq(disS)
+dclass <- unique(unlist(sapply(fdS,function(x){x[,1]}))) ## disturbance classes
+dcount = matrix(0,length(dclass),length(fdS))
+for(t in 1:length(fdS)){
+  sel = match(fdS[[t]][,1],dclass)
+  dcount[sel,t] = fdS[[t]][,2]
+}
+rownames(dcount)=dclass
+colnames(dcount)=dtime
+d.prior = rowSums(dcount)
+d.prior = d.prior/sum(d.prior)
+d.prior[d.prior>0.001]   ## classes to worry about
 
 #### disturbance aggregations ####
+rcl = matrix(
+    ## Untriggered  
+       c(1,   0, # Undisturbed
+         100, 0, # Ukn Slow Disturbance
+         160, 0, # Recovery
+         200, 0, # No Vis Change
+         201, 0, # False Change
+         254, 0, # Err No Code
+         255, 0, # Err Undefined
+    ## Clearcut
+         20, 20, # 'Clearcut',
+         21, 20, # Partial Harvest
+         22, 20, # Salvage
+    ## Fire
+         40, 40, # Fire'
+    ## Pest
+         50, 50, #  Insect/Disease',
+         51, 50, # 'MPB-29',
+         52, 50, # 'MPB-239',
+         53, 50, # 'WSB-29'
+         54, 50, # 'WSB-239'
+    ## OTHER
+         10, 10,  # 'Unkwn Agent',
+         11, 10,  # 'Other '
+         30, 10, # Development'      ## Development
+         31, 10, # Road
+         61, 10,  # 'Water',
+         62, 10,  # 'Wind',
+         70, 10,  # 'Avalanche-Chute',
+         71, 10,  # 'Avalanche-Runout',
+         72, 10,  # 'Debris Flow',
+         73, 10  # 'Landslide',
+         ),ncol=2,byrow = TRUE)
 
-## 
-dis[dis==60] <- 
+disR = raster::subs(disS,as.data.frame(rcl))
+save(disR,file=dis.processed)
+
+if(FALSE){
+disS[disS==1]   = 0   # Undisturbed
+disS[disS==100] = 0   # Ukn Slow Disturbance
+disS[disS==160] = 0   # Recovery
+disS[disS==200] = 0   # No Vis Change
+disS[disS==201] = 0   # False Change
+disS[disS==254] = 0   # Err No Code
+disS[disS==255] = 0   # Err Undefined
+
+## Cut
+##    20:  'Clearcut',
+disS[disS==21]  = 20  # Partial Harvest
+disS[disS==22]  = 20  # Salvage
+
+## Development
+##    30:  'Development',
+disS[disS==31]  = 30  # Road
+
+## Fire
+##    40:  'Fire',
+
+## Pest
+## 50:  'Insect/Disease',
+disS[disS==51]  = 50  # 'MPB-29',
+disS[disS==52]  = 50  # 'MPB-239',
+disS[disS==53]  = 50  # 'WSB-29'
+disS[disS==54]  = 50  # 'WSB-239'
+
+## OTHER
+##  10:  'Unkwn Agent',
+disS[disS==11]  = 10  # 'Other '
+disS[disS==61]  = 10  # 'Water',
+disS[disS==62]  = 10  # 'Wind',
+disS[disS==70]  = 10  # 'Avalanche-Chute',
+disS[disS==71]  = 10  # 'Avalanche-Runout',
+disS[disS==72]  = 10  # 'Debris Flow',
+disS[disS==73]  = 10  # 'Landslide',
+}
+
+### RECALCULATE FREQUENCIES
+
+fdS = freq(disR)
+save(disR,fdS,file=dis.processed)
+dclass <- unique(as.vector(unlist(sapply(fdS,function(x){x[,1]})))) ## disturbance classes
+dcount = matrix(0,length(dclass),length(fdS))
+for(t in 1:length(fdS)){
+  sel = match(fdS[[t]][,1],dclass)
+  dcount[sel,t] = fdS[[t]][,2]
+}
+rownames(dcount)=dclass
+colnames(dcount)=dtime
+d.prior = rowSums(dcount)
+d.prior = d.prior/sum(d.prior)
+d.prior[d.prior>0.001]   ## classes to worry about
+
+for(i in seq_along(dclass)){
+  plot(dtime,dcount[i,]*(30^2/100^2),main=dclass[i],ylab="hectares",type='l')
+}
+
+  ## match disturbance to cover
+  disR <- raster::resample(disR,cover,method="ngb")
+  dis.resamp = "disR.resamp.RData"
+  save(disR,fdS,file=dis.resamp)
 
 ```
 
 
 ## Determine transitions (cover / pft)
+## looking at a sample, most disturbances correspond to cover changes THAT YEAR
+## exception is fire, where there seems to be a nontrivial number that are forest that year but nonforest e.g barren the following year
+## do see a good number of cover transitions
+```{r}
+train = list()
+nd = length(dclass)-1
+tmat = matrix(0,10,nd) ## transition matrix
+bioBar=bioSq=pbioBar=pbioSq = tmat ## sums for biomass and proportional biomass change
+nsamp = 100
 
+## loop over years
+ttime = ctime[ctime<2004][-1] ## training years
+for(t in seq_along(ttime)){
+  print(t)
+  
+  if(t>length(train)){ 
+## sample
+    dtmp <- disR[[which(dtime==ttime[t])]]  ## disturbances for that year
+    stmp = raster::sampleStratified(dtmp,size = nsamp,exp=1000) ## sample of cell #'s
+  
+## eliminate disturbances that did not apply to forests
+    ctmp <- covS[[which(ctime==ttime[t])]]  ## cover for previous year
+    ftmp <- stmp[ctmp[stmp[,1]]==42,]       ## only keep conifer
+    train[[t]] = list(sample=ftmp)
+  } else {
+    ftmp = train[[t]]$sample   # restart if already created sample
+  }
+  save(train,file="stateTrain.RData")
+  
+## extract cover and biomass (with restart capability)
+  if(is.null(train[[t]][["cover"]])){
+    cetmp = raster::extract(covS,ftmp[,1])
+    train[[t]]$cover = cetmp
+  } else {cetmp = train[[t]][["cover"]]}
+  if(is.null(train[[t]][["biomass"]])){
+    betmp = raster::extract(bioS,ftmp[,1])
+    train[[t]]$biomass = betmp
+  } else {betmp = train[[t]][["biomass"]]}
+  save(train,file="stateTrain.RData")
+  
+  bm0    = apply(betmp[,ctime %in% (ttime[t]-(1:3)),drop=FALSE],1,max)
+#  bm1    = betmp[,ctime == ttime[t]]
+#  bm2    = betmp[,ctime == (ttime[t]+1)]
+#  bm = pmin(bm1,bm2)
+  bm  = apply(betmp[,ctime %in% (ttime[t]+(0:2)),drop=FALSE],1,min)
+  br    = bm/bm0
+  bm[is.na(bm)] = 0
+  br[is.na(br)] = 0
 
-## Reduce dimensionality, save
+  for(c in seq_along(dclass)){
+    selc = which(ftmp[,2] == dclass[c])
+    plot(ctime,ctime,ylim=range(betmp,na.rm = TRUE),type='n',main=paste(ttime[t],dclass[c]))
+    for(i in seq_along(selc)) lines(ctime,betmp[selc[i],],col=floor(cetmp[selc[i],t+1]/10))
+    abline(v=ttime[t])
+    print(c(t,dclass[c],mean(br[selc])))
+  }
+  
+  
+## loop over disturbance types
+  for(c in seq_along(dclass)){
+    print(c(t,c))
+    selc = which(ftmp[,2] == dclass[c])
+  
+    ## tally within-year transitions
+    trans = cetmp[selc,ctime %in% (ttime[t]+0:1),drop=FALSE]
+    if(nrow(trans) == 0) next
+    trans = floor(trans/10)  ## round down
+    trans[trans[,2]==4,1] = 4 ## eliminate 1-yr only transitions
+    t1 = unique(trans[,1])
+    for(lc in t1){
+      if(lc == 4){
+        ## for forest, tally next-year transitions
+        t2sel = which(trans[,1]==4)
+        t2 = unique(trans[t2sel,2])
+        tmat[t2,c]    = tmat[t2,c]    + tapply(bm[selc[t2sel]],  trans[,2],length)
+        ## for each transition, tally biomass
+        bioBar[t2,c]  = bioBar[t2,c]  + tapply(bm[selc[t2sel]],  trans[,2],sum)
+        bioSq[t2,c]   = bioSq[t2,c]   + tapply(bm[selc[t2sel]]^2,trans[,2],sum)
+        pbioBar[t2,c] = pbioBar[t2,c] + tapply(br[selc[t2sel]],  trans[,2],sum)
+        pbioSq[t2,c]  = pbioSq[t2,c]  + tapply(br[selc[t2sel]]^2,trans[,2],sum)
+      } else {
+        ## tally this-year transitions
+        t1sel = which(trans[,1]!=4)
+        t0 = unique(trans[t1sel,1])
+        tmat[t0,c]    = tmat[t0,c]    + tapply(bm[selc[t1sel]],  trans[,1],length)
+        ## for each transition, tally biomass, biomass^2, propBiomass, and propBiomass^2
+        bioBar[t0,c]  = bioBar[t0,c]  + tapply(bm[selc[t1sel]],  trans[,1],sum)
+        bioSq[t0,c]   = bioSq[t0,c]   + tapply(bm[selc[t1sel]]^2,trans[,1],sum)
+        pbioBar[t0,c] = pbioBar[t0,c] + tapply(br[selc[t1sel]],  trans[,1],sum)
+        pbioSq[t0,c]  = pbioSq[t0,c]  + tapply(br[selc[t1sel]]^2,trans[,1],sum)
+      }
+    
+    } ## end loop over lc
 
+  } ## end loop over disturbance class c
+} ## end loop over time
+TRANS = t(t(tmat)/colSums(tmat))
+BBAR  = bioBar/tmat
+PBBAR = pbioBar/tmat
+BVAR  = sqrt((bioSq -  (bioBar  *  bioBar)/tmat) / (tmat - 1))
+PBVAR = sqrt((pbioSq - (pbioBar * pbioBar)/tmat) / (tmat - 1))
+BVAR/BBAR - PBVAR
+## in all cases, disturbance CV was higher on an absolute than a relative basis
+save(PBBAR,PBVAR,file="STprior.RData")
+```
 
 ## select sites of interest, save
+```{r}
+## sample disturbances for target year
+nsamp = 100
+d04 <- disR[[which(dtime==2004)]]
+samp = raster::sampleStratified(d04,size = nsamp,exp=1000)
+
+## eliminate disturbances that did not apply to forests
+c03 <- covS[[which(ctime==2003)]]
+csamp <- c03[samp[,1]]
+fsamp <- samp[csamp==42,]
+
+dextract = raster::extract(disR,fsamp[,1])
+
+## plot timeseries for each samp to get a feel for variability and timing
+for(c in seq_along(dclass)){
+  selc = which(fsamp[,2] == dclass[c])
+  plot(dtime,dtime,ylim=range(dextract,na.rm = TRUE),type='n',main=dclass[c])
+  for(i in seq_along(selc)) lines(dtime,dextract[selc[i],])
+}
+
+## similarly, plot how biomass and cover change
+cextract = raster::extract(covS,fsamp[,1])
+for(c in seq_along(dclass)){
+  selc = which(fsamp[,2] == dclass[c])
+  plot(ctime,ctime,ylim=range(cextract,na.rm = TRUE),type='n',main=dclass[c])
+  for(i in seq_along(selc)) lines(ctime,jitter(cextract[selc[i],],amount=0.5))
+  abline(v=2004)
+}
+
+bextract = raster::extract(bioS,fsamp[,1])
+for(c in seq_along(dclass)){
+  selc = which(fsamp[,2] == dclass[c])
+  plot(ctime,ctime,ylim=range(bextract,na.rm = TRUE),type='n',main=dclass[c])
+  for(i in seq_along(selc)) lines(ctime,bextract[selc[i],],col=floor(cextract[selc[i],16]/10))
+  abline(v=2004)
+  print(c(dclass[c],mean(bextract[selc,15]/bextract[selc,14])))
+}
+
+```
+
