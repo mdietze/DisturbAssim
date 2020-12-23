@@ -27,6 +27,9 @@ knitr::opts_chunk$set(echo = TRUE)
 2. Status quo: LULC * look up table
   + very coarse, doesn't capture spatiotemporal varibility
   + rightly captures that disturbance and land use change both critical to C accounting and, more importantly, a place where we can exert some control
+  + BULC
+  + state-and-transition modeling
+  + process-model projections
 3. Alternative: SDA
   + models capture process
   + data constrains (data driven, model as cov)

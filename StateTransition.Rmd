@@ -346,7 +346,11 @@ BVAR  = sqrt((bioSq -  (bioBar  *  bioBar)/tmat) / (tmat - 1))
 PBVAR = sqrt((pbioSq - (pbioBar * pbioBar)/tmat) / (tmat - 1))
 BVAR/BBAR - PBVAR
 ## in all cases, disturbance CV was higher on an absolute than a relative basis
-save(PBBAR,PBVAR,file="STprior.RData")
+colnames(TRANS)<-c("UN","OTHER","CUT","FIRE","PEST")
+names(d.prior)[1:5] <- colnames(TRANS)
+rownames(TRANS)<-c("water","devel","barren","forest","shrub","---","herb","crop","wetland","NA")
+TRANS
+save(d.prior,TRANS,PBBAR,PBVAR,file="STprior.RData")
 ```
 
 ## select sites of interest, save
@@ -388,5 +392,10 @@ for(c in seq_along(dclass)){
   print(c(dclass[c],mean(bextract[selc,15]/bextract[selc,14])))
 }
 
+coord = xyFromCell(bioS,fsamp[,1])
+points = spTransform(SpatialPoints(coord,crs(bioS)),crs("+proj=longlat +datum=WGS84"))
+
+
+save(points,bextract,cextract,dextract,file="extract.h03v04.RData")
 ```
 

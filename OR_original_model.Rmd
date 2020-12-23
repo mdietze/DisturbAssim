@@ -1,0 +1,338 @@
+---
+title: "OR Multi Disturbance"
+author: "Michael Dietze"
+date: "12/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("disturbance.R")
+source("multi.ens.adj.R")
+```
+
+## set up
+```{r}
+## Load disturbance rate, state&transition, disturbed biomass stats
+load("STprior.RData")
+colnames(dextract) <- paste0("t",dtime)
+dextract[is.na(dextract)] <- 0
+d.prior["UN"] = d.prior["UN"] + d.prior[6]                         ## change at runtime (removes <NA>)
+d.prior = d.prior[-6]
+
+
+## Load Calibration
+load("fit.RData")
+
+## Load extracted site timeseries
+load("extract.h03v04.RData")
+```
+
+## drivers
+```{r}
+latlon = points@coords
+metFile = "daymet.RData"
+if(file.exists(metFile)){
+  load(metFile)
+} else {
+  dm = list()
+  for(i in 1:nrow(latlon)){
+    dm[[i]] = daymetr::download_daymet(site="h03v04",latlon[i,2],latlon[i,1],start=1985,end=2017,internal=TRUE,simplify=TRUE)
+  }
+  save(dm,file=metFile)
+}
+
+## extract Shortwave and convert to daily PAR
+SW2PAR = 0.45
+srad = subset(dm[[1]],measurement == "srad..W.m.2.")   
+metTime <- as.POSIXct(paste(srad$year,srad$yday,sep="-"),format="%Y-%j")
+rad <- matrix(NA,length(dm),length(metTime))
+for(i in seq_along(dm)){
+  srad = subset(dm[[i]],measurement == "srad..W.m.2.")   
+  rad[i,] = srad$value*1e-6*86400*SW2PAR  # -> MJ /m2 /day PAR
+}
+plot(metTime,rad[1,],type='l')
+## plot(date,PAR,col=2) ## calibration data
+```
+
+## functions
+```{r,echo=FALSE,results='hide',message=FALS}
+##' Single Site, Single Disturbance
+##' @param Y observed data
+##' @param R observation error
+##' @param Q process error
+##' @param Xic state initial condition matrix
+##' @param THETA parameter matrix
+##' @param dist  disturbance list: p.dist, mu0[3], V0[3,3], alloc soil 
+SSSD.model <- function(Y,R,Q,PAR,Xic,THETA,dist){
+  
+  ## init
+  NT = length(PAR)/365
+  Nf = Nmu = Na = Xic
+  ne = nrow(Xic)
+  if(!is.matrix(THETA)) THETA = matrix(THETA,nrow=ne,ncol=length(THETA),byrow = TRUE)
+  Forecast = Analysis = list()
+  
+  
+  AnalysisSSSDMP <- "  ## SingleSite SingleDisturbance MultiPool
+    model{
+      ## prior
+      muN ~ dmnorm(mufN,pfN)                ## forecast prior on Not disturbed
+      muD ~ dmnorm(mufD,pfD)                ## forecast prior on Disturbed
+      D ~ dbern(p)                          ## disturbance probability
+      ## Analysis 
+      n <- D*muD + (1-D)*muN                ## select between disturbed and undisturbed
+      Y[H] ~ dmnorm(n[H],R[H,H])                       ## Observation error
+  }"
+  
+  for(t in 1:2){
+    
+    ## update IC
+    THETA[,9:11]  <- Na    ## Multinomial
+
+    ## Forecast 
+    for(i in 1:ne){
+      tsel    = (t-1)*365 + 1:365             ## Select days from driver files
+      Nmu[i,] = VSEM(THETA[i,], PAR = PAR[tsel])[365,2:4] ## deterministic simulation
+      Nf[i,]  = mvtnorm::rmvnorm(1,Nmu[i,],Q) ## process error
+    }
+    
+    ## Disturbance
+    d.forecast <- rep(0,ne); d.forecast[1:ceiling(ne*0.1)] <- 1 #rbinom(ne,1,dist$p.dist)             ## prior on disturbance status
+    sel <- !as.logical(d.forecast)                ## select undisturbed ensemble members
+    if(sum(!sel)>2){
+      sel.dist = which(!sel)
+      for(j in sel.dist){                      ## run disturbance model
+        Nf[j,]  = disturbance.p(Nf[j,],mu0=dist$mu0,V0 = dist$V0,alloc.soil = dist$alloc.soil)
+      }
+      mufD  = colMeans(Nf[!sel,])
+      pfD = solve(var(Nf[!sel,]))#solve(diag(c(0.15,0.5,0.25)^2))
+    } 
+    if(sum(!sel) <= 2 || class(pfD) == "try-error") {   ## backup values if the ensemble stats fail
+      mufD = c(dist$mu0[1], mean(Nf[,2]),  dist$mu0[2])            
+      pfD  = solve(diag(c(0.15,0.5,0.25)^2))
+    }
+    Nf <- tobit(Nf)
+    
+    ## priors
+    priors <- list(p    = dist$p.dist,         ## disturbance rate
+                   mufN = colMeans(Nf[sel,]),    ## Not disturbed forecast means
+                   mufD = mufD,   ## Disturbed forecast means
+                   pfN  = solve(var(Nf[sel,])),  ## Not disturbed forecast precision
+                   pfD  = pfD  ## Disturbed forecast precision
+    )
+    Forecast[[t]] <- c(list(d.forecast=d.forecast,Nf=Nf),priors)
+    
+    ## Analysis
+    update = c(list(Y=Y[t,],R=solve(R)),priors,H = which(!is.na(Y[t,])))
+    if(length(update$H) > 0){ ## data observed, run filter
+      mod <- rjags::jags.model(file=textConnection(AnalysisSSSDMP),
+                               data=update,
+                               n.adapt=1000,n.chains=3,quiet=TRUE)
+      jdat <- rjags::coda.samples(mod,variable.names=c("n","D","muN","muD"),n.iter=10000) 
+    
+      ## update parameters & save Analysis posterior
+      dat = as.matrix(jdat)
+      nsel <- grep(pattern="^n",x=colnames(dat))
+      Xa = dat[,nsel]
+      ca = dat[,"D"]
+      run.adjustment = TRUE
+      if(FALSE){
+        d3 <-density(Xa[,3]) 
+        plot(d3)
+        lines(d3$x,dnorm(d3$x,update$Y[3],1/sqrt(R[3,3])),col=2)
+        lines(d3$x,dnorm(d3$x,priors$mufN[3],1/sqrt(priors$pfN[3,3])),col="blue")
+        p.kf = R[3,3]+priors$pfN[3,3]
+        mu.kf = priors$mufN[3]*priors$pfN[3,3]/p.kf+
+          update$Y[3]*R[3,3]/p.kf
+        lines(d3$x,dnorm(d3$x,mu.kf,1/sqrt(p.kf)),col=3,lty=2)
+        
+        jtest <- "model{
+         Y ~ dmnorm(n[H],R[H,H])
+        }"
+        jtest <- "  ## SingleSite SingleDisturbance MultiPool
+    model{
+      ## prior
+      n[3] ~ dnorm(mufN[3],pfN[3,3])  
+      Y[H] ~ dnorm(n[H],R[H,H])
+      dummy <- mufD[1] + pfD[1,1] + p
+  }"
+      jtest <- "  ## SingleSite SingleDisturbance MultiPool
+    model{
+      ## prior
+      n[3] ~ dnorm(mufN[3],pfN[3,3])  
+      Y[H] ~ dnorm(n[3],R[H,H])
+  }"
+        update2 = list(mufN = update$mufN,
+                       pfN = update$pfN,
+                       Y=update$Y,R=R,H=3)
+        mtest <- rjags::jags.model(file=textConnection(jtest),
+                                   data = update,
+#                               data=list(n = c(NA,NA,mu.kf),
+#                                         R=matrix(p.kf,3,3),H=3),
+                               n.adapt=1000,n.chains=3,quiet=TRUE)
+        mdat <- rjags::coda.samples(mtest,variable.names=c("n"),n.iter=10000) 
+      summary(mdat)  
+      }
+    } else {
+      Xa = Nf
+      ca = 1
+      run.adjustment = FALSE
+    }
+
+    
+      ## draw new IC
+    if(run.adjustment){
+    Na <- multi.ens.adj(
+      Xf   = Nf,
+      cf   = d.forecast,
+      mu.f = rbind(priors$mufN,priors$mufD),
+      Pf   = abind::abind(solve(priors$pfN),
+                            solve(priors$pfD),
+                            along=3),
+      Xa = Xa,
+      ca = ca)
+    } else {
+      Na = cbind(rep(0,nrow(Nf)),Nf)
+    }
+    Ca <- Na[,1] ## updated classf assignments
+    Na <- tobit(Na[,-1])
+    #  sel.ic <- sample.int(nrow(dat), ne, replace=TRUE)
+    #  Na <- dat[sel.ic,nsel]
+    Analysis[[t]] <- list(Na = Na,
+                          Ca = Ca,
+                          CI = apply(dat,2,quantile,c(0.025,0.25,0.5,0.75,0.975))
+    )
+  }
+  return(list(Forecast=Forecast,Analysis=Analysis))
+}
+```
+
+
+
+
+## initial conditions & observations
+```{r}
+## BIOMASS
+B2C = 0.5 ##biomass to carbon ratio
+Yw <- bextract*B2C*1000*1e-4 ## convert Mg/ha  to  kg C 
+Rw <- (84*B2C*1000*1e-4)^2 ## Observation Error: Kennedy et al 2018 Environ. Res. Lett. 13 025004; Fig 2 RMSE
+## units: Mg/ha -> kg/m2
+
+## grab the distribution of AGB for the first time point from all pixels
+AGBprior <- Yw[,1]
+ne = length(AGBprior) ## number of ensemble members
+
+## spin up
+PARlong <- as.vector(t(rad))
+spin = VSEM(theta,PARlong)
+thin = seq(nrow(spin)/2,nrow(spin),length=ne)
+spinIC = spin[thin,2:4]
+#for(i in 2:4){
+#  hist(spin[thin,i],type='l')
+#}
+
+## disturbance recovery trajectory
+nNBG = 200 ## years
+NBG <- array(NA,c(ne,nNBG,3))
+for(i in 1:ne){
+  param = theta
+  param[9:11] <- spinIC[i,]*c(0.01,1,0.01) ## set leaf and wood to 1%
+  raw = VSEM(param,PARlong[1:(nNBG*365.25)])
+  NBG[i,,] = raw[round(seq(365,nNBG*365.25,length=nNBG)),2:4]  ## grab pools at the end of each year
+}
+  
+## for each AGBprior, grab the matching leaf and soil
+ICprior <- matrix(NA,ne,3)
+age = rep(NA,ne)
+for(i in 1:ne){
+  age[i] <- which.min((AGBprior[i]-NBG[i,,3])^2)  
+  ICprior[i,] <- c(NBG[i,age[i],1:2],AGBprior[i])
+}
+hist(age)
+colnames(ICprior) <- c("Cv","Cs","CR") 
+pairs(ICprior)
+  
+```
+
+
+## analyze sites - just one disturbance
+```{r}
+i = 181  # 177:263 = #fire
+NT = floor(ncol(rad)/365)
+Yi = matrix(NA,NT,3)  ## observed data
+Yi[1:ncol(Yw),3] = Yw[i,]  ## only Cw observed
+R = diag(rep(Rw/1000,3))    ## observation error   ### div 1000 is test
+Q = diag(c(Ql,Qs,Qw)^2)*10  ## process error
+dist <- list(              ## disturbance parameters
+  p.dist = d.prior[4],     ## disturbance probability
+  mu0 = c(0.2,PBBAR[4,4]),   ## % retention [leaf,agb], first parameter made up, should include soil
+  V0 =  diag(c(0.15,PBVAR[4,4])^2), #variance in retention
+  alloc.soil = 0.05        ## made up  
+)
+test = SSSD.model(Y = Yi,R=R,Q=Q,
+                  PAR=rad[i,],Xic=ICprior,THETA=theta[1:11],
+                  dist = dist)
+```
+
+
+## visualization
+```{r}
+i = 181
+pool.names=c("Cleaf","Csoil","Cstem")
+for(i in 1:3){
+  
+    CI.Na = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("n[",i,"]"))
+      y[,sel.n]
+    })
+    
+    CI.D = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("D"))
+      y[,sel.n]
+    })
+
+    CI.Nf = sapply(X = test$Forecast, function(x){
+      mu = x$mufN[i]
+      sd = 1/sqrt(x$pfN[i,i])
+      return(mu + c(-1.96,0,1.96)*sd)
+    })
+    
+  plot(Yi[,i],
+       ylim = range(rbind(CI.Na,Yi[,i]),na.rm=TRUE),
+       type='n',
+       ylab=pool.names[i],xlab="time")
+  ecoforecastR::ciEnvelope(1:ncol(CI.Nf),CI.Nf[1,],CI.Nf[3,],col=ecoforecastR::col.alpha("blue",0.5))
+  ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[5,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
+  lines(CI.Na[3,],col="#b2df8a",lwd=2)
+  points(Yi[,i])
+  lines(CI.D[3,])
+  
+  
+}
+
+
+```
+
+ TODO:
+ * why is Analysis not contracting around the data?
+    * reducing obs error by /10 didn't solve
+ * why are the disturbance forecast pools crazy?
+ * assess disturbance posterior
+
+## Computer experiments
+* Run under defaults
+* Run under a grid of inc process error and decrease obs error and increase disturbance probability
+
+## postprocessing
+
+false positives
+
+false negatives
+
+classification success
+
+## Next steps:
+* Run with multiple disturbance options and PFT switching

@@ -1,0 +1,244 @@
+---
+title: "Calibration"
+author: "Michael Dietze"
+date: "11/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(BayesianTools)
+citation("BayesianTools")
+set.seed(42)
+```
+
+
+## Data stream 1: Eddy covariance flux & met
+```{r}
+AF = read.csv("Metolius.csv",header=TRUE)
+
+AF.biomass = raster::extract(bioS,AF[,c("Lat.","Long.")])
+
+LAI.BADM = c(1.87, 1.96, 2.35, 2.37, 2.7, 2.8, 2.87, 3.01)
+
+SoilCcon = c(0.37192982456,0.18974358974,0.10518518519)  ##gC/kgSoil
+SoilBD   = c(1.14,1.17,1.35)/1000 ## kgSoil/cm3  
+SoilDepth= c(20,30,50)  ## cm
+SoilC = sum(SoilCcon*SoilBD*SoilDepth*1e4) ## gC/kgSoil * kgSoil/cm3 * cm3/m2  ->kgC/m2
+
+
+
+flux = read.csv("Ameriflux/AMF_US-Me2_BASE-BADM_14-5/AMF_US-Me2_BASE_HH_14-5.csv",header = TRUE,skip=2,na.strings = c(-9999,-6999))
+time = as.POSIXlt(as.character(flux$TIMESTAMP_START),format="%Y%m%d%H%M")
+
+## PAR data
+ein = 2.17e-5 #J mol-1 from ED2 wiki
+ein = 0.327 * 1e6 #J/umol * 1e6 umol/mol #units from Apogee 
+date.i = as.Date(time)
+date = as.Date(names(tapply(date.i,date.i,mean)))
+PAR = tapply(flux$PPFD_IN,date.i,mean)*ein*86400*1e-12 ## µmolPhoton m-2 s-1 -> MJ /m2 /day
+
+## Gapfill
+doy <- tapply(lubridate::yday(time),date.i,mean)
+PARclim <- tapply(PAR,doy,mean,na.rm=TRUE)
+PAR[is.na(PAR)] <- PARclim[doy[is.na(PAR)]]
+
+plot(date,PAR)
+
+## NEE
+NEE = tapply(flux$FC,date.i,mean,na.rm=TRUE)
+NEEp = tapply(flux$NEE_PI,date.i,mean,na.rm=TRUE)
+cnt = tapply(is.na(flux$FC),date.i,sum)
+cntp = tapply(is.na(flux$NEE_PI),date.i,sum)
+NEE2 = NEE
+NEE2[cnt<1] = NA
+#plot(time,flux$FC)
+plot(date,NEE)
+points(date,NEE2,col=2)
+
+plot(doy,NEE)
+points(doy,NEE2,col=2)
+
+## aggregate flux to annual and change units to kgC/m2/year
+years <- lubridate::year(date)
+aNEE = tapply(NEE,years,mean,na.rm=TRUE)*1.2e-8 * 86400 *365 ## umol/m2/sec * kg/umol * sec/day
+year = as.numeric(names(aNEE))
+plot(year,aNEE)
+
+## leaf and wood biomass
+Cw = Cl = rep(NA,19)
+Cl[c(1,2,3,4,9,10,5,6,7,8)] = c(452.80554869,460.10972745,469.24831463,477.98289883,525.91518937,535.12650483, 485.76130987,496.26140507,506.1776831,514.03435729)/1000
+Cw[c(1,2,3,4,10,5,6,7,8,9)] = c(4435.1119994,4793.8053523,4968.8831826,5140.6894352,6293.0243086,5305.4365914,5504.2730671,5699.6935828,5871.0926993,6100.944853)/1000
+
+```
+
+## Data stream 2: LAI
+
+## Data stream 3: AGB
+
+
+## Data stream 4: spatial meteorology
+
+
+## Define Likelihood, priors
+```{r}
+parSel = c(3, 4, 6, 7, 8, 12:14)
+
+## Priors
+refPars <- VSEMgetDefaults()
+refPars[12,] <- c(.1, 0.01, 4)  ## sigma NEE
+refPars[13,] <- c(.2, 0.01, 4)  ## sigma Cl
+refPars[14,] <- c(.5, 0.01, 4)  ## sigma Cw
+rownames(refPars)[12:14] <- c("sd_NEE","sd_leaf","sd_wood")
+refPars["LUE","best"] <- 0.00022 ## tuning
+refPars["GAMMA",] <- c(0.55,0.2,0.7) ## tuning
+refPars["tauS",] <- c(5e+04,4000,1e5) 
+refPars["LAR","best"] <- 1000/127/0.5   ## Ameriflux BADM says LMA is 127 g m-2  -> m2/kgC
+refPars["tauV","best"] <- 4.7*365.25 ## Wikipedia says var. ponderosa has a longevity of 4.7+/-0.14 years
+refPars["tauR",] <- c(100,5,400)*356 ## sylvics says 300-year lifespan, but there will be branchfall and fine litter
+refPars["Av","best"] <- 113.81026786/(113.8 + 206.2)*0.95 ## Ameriflux litter prod/(litter+wood prod) * tuning fudge factor
+refPars["Cv","best"] <- Cl[1]*1.5-0.5*Cl[2] #0.4528 ## Ameriflux gC/m2 -> kgC/m2 ## LAI.BADM[1]/refPars["LAR","best"]
+refPars["Cr","best"] <- Cw[1]*1.5-0.5*Cw[2]#4.4351119994 ## Ameriflux
+refPars["Cs","best"] <- SoilC/10  ## BADM value seems too high
+prior <- createUniformPrior(lower = refPars$lower[parSel], 
+                            upper = refPars$upper[parSel], best = refPars$best[parSel])
+
+
+## Likelihood
+
+# here is the likelihood 
+likelihood <- function(par, sum = TRUE){
+  # set parameters that are not calibrated on default values 
+  x = refPars$best
+  x[parSel] = par
+  pred <- VSEM(x[1:11], PAR) # replace here VSEM with your model
+  NEEm = tapply(pred[,"NEE"],years,sum)
+  Cl.m  = tapply(pred[,"Cv"],years,mean)
+  Cw.m  = tapply(pred[,"CR"],years,mean)
+  llValues <- c(0.25*dnorm(x = aNEE, mean = NEEm, sd = x[12], log = TRUE),  ## downweight because less important
+              dnorm(Cl,Cl.m,x[13],log=TRUE),
+              4*dnorm(Cw,Cw.m,x[14],log=TRUE)) ## upweight (destroys prob interpretation, but var most important)
+  llValues[is.nan(llValues)]<- -Inf
+  return(sum(llValues,na.rm = TRUE))
+}
+
+# optional, you can also directly provide lower, upper in the createBayesianSetup, see help
+bayesianSetup <- createBayesianSetup(likelihood, prior, 
+                                     names = rownames(refPars)[parSel])#,parallel = TRUE)#,parallelOptions = list(variables=list(refPars=,"parSel","PAR","years","aNEE","Cl","Cw")))
+```
+
+## Precalibration runs
+```{r}
+pred = VSEM(refPars[1:11,"best"],PAR = PAR)
+NEEm = tapply(pred[,"NEE"],years,sum)
+
+plot(NEEm,aNEE)
+abline(0,1,col=2,lty=2,lwd=3)
+
+#plot(doy,NEE)
+#points(doy,pred[,"NEE"],pch="+",col=2)
+
+plot(year,tapply(pred[,"Cv"],years,mean))
+points(year,Cl,col=2,pch="+")
+
+plot(year,tapply(pred[,"CR"],years,mean))
+points(year,Cw,col=2,pch="+")
+
+plot(pred[,"Cs"])
+
+```
+
+## Fit via MLE
+```{r}
+negLL <- function(par){-1*likelihood(par)}
+mle = optim(refPars[parSel,"best"],negLL)
+#mle = optim(refPars[parSel,"best"],negLL,method="L-BFGS-B",lower=refPars[parSel,"lower"],upper=refPars[parSel,"upper"])
+cbind(refPars[parSel,"best"],mle$par)
+
+likelihood(refPars[parSel,"best"])
+likelihood(mle$par)
+
+```
+
+
+
+## Fit via Bayesian Tools
+```{r}
+settings <- list(iterations = 25000, nrChains = 2)#,parallel=TRUE)
+out <- runMCMC(bayesianSetup = bayesianSetup, sampler = "DEzs", settings = settings)
+foo = summary(out)
+```
+
+```{r}
+plot(out)
+```
+
+
+##postcalibrartion
+```{r}
+ref = refPars[,"best"]
+#fit = BayesianTools::MAP(out)$parametersMAP
+fit = mle$par
+ref[12:14] = fit[6:8]
+likelihood(ref[parSel])
+likelihood(fit)
+
+theta = refPars[,"best"]
+cbind(theta[parSel],fit)
+theta[parSel] = fit
+names(theta) <- rownames(refPars)
+post = VSEM(theta[1:11],PAR = PAR)
+NEEm = tapply(post[,"NEE"],years,sum)
+
+plot(NEEm,aNEE)
+abline(0,1,col=2,lty=2,lwd=3)
+
+#plot(doy,NEE)
+#points(doy,pred[,"NEE"],pch="+",col=2)
+
+Cl.pred = tapply(pred[,"Cv"],years,mean)
+Cl.post = tapply(post[,"Cv"],years,mean)
+plot(year,Cl.pred,ylim=range(c(Cl,Cl.post,Cl.pred),na.rm=TRUE))
+lines(year,Cl.post,col=3)
+points(year,Cl,col=2,pch="+")
+
+Cw.post = tapply(post[,"CR"],years,mean)
+plot(year,tapply(pred[,"CR"],years,mean))
+lines(year,Cw.post,col=3)
+points(year,Cw,col=2,pch="+")
+
+Cs.post = tapply(post[,"Cs"],years,mean)
+plot(pred[,"Cs"])
+lines(Cs.post)
+abline(h=SoilC/10)
+
+
+## Rough approximation of process error: RMSE on delta
+Ql <- sqrt(mean((diff(Cl)-diff(Cl.post))^2,na.rm=TRUE))
+Qw <- sqrt(mean((diff(Cw[-1])-diff(Cw.post[-1]))^2,na.rm=TRUE)) ## first value bit of an outlier
+Qs <- sqrt(mean(diff(Cs.post))) ## assume 100% error (i.e. true delta Soil C = 1)
+
+## Cv of Q
+Ql/mean(diff(Cl),na.rm=TRUE)
+Qw/mean(diff(Cw),na.rm=TRUE)
+
+save(theta,Ql,Qw,Qs,file="fit.RData")
+```
+
+
+
+## Ameriflux Download Manifest
+```
+#downloadDate:20201206113353
+#numberOfSitesDownloaded:6
+#emailForSitePIs:bev.law@oregonstate.edu
+#dataFiles
+SITE_ID,filename,start_year,end_year,version,filetype,timestamp
+US-Me1,AMF_US-Me1_BASE_HH_3-5.csv,2004,2005,3-5,FLUX-MET,201902011245
+US-Me2,AMF_US-Me2_BASE_HH_14-5.csv,2002,2020,14-5,FLUX-MET,202011171249
+US-Me3,AMF_US-Me3_BASE_HH_4-5.csv,2004,2009,4-5,FLUX-MET,201811191702
+US-Me4,AMF_US-Me4_BASE_HH_4-1.csv,1996,2000,4-1,FLUX-MET,201602060503
+US-Me5,AMF_US-Me5_BASE_HH_2-1.csv,1999,2002,2-1,FLUX-MET,201605150147
+US-Me6,AMF_US-Me6_BASE_HH_12-5.csv,2010,2020,12-5,FLUX-MET,202011171249
+```
+

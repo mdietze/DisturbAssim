@@ -3,9 +3,34 @@ tobit <- function(x){
   x
 }
 
-disturbance <- function(x){ ## x = Bleaf, Bsoil, Bstem
+tobit2 <- function(x,upper){
+  x[x < 0] <- 0
+  x[x>upper] <- upper
+  x
+}
+
+
+disturbance <- function(x,                         ## x = Bleaf, Bsoil, Bstem
+                        mu0 = c(1,1),              ## mean leaf & stem biomass after disturbance
+                        V0 = diag(c(0.15,0.25))^2, ## var in post disturbance leaf and stem biomass, 
+                        alloc.soil = 0.25){        ## fraction of removed C that goes in the soil
   old.biomass <- x[c(1,3)]
   new.biomass <- tobit(mvtnorm::rmvnorm(1,mu0,V0)) ## draw disturbed leaf and stem
+  check.max <- which(new.biomass > old.biomass)
+  if(length(check.max)>0) new.biomass[check.max] = old.biomass[check.max]
+  residual = sum(old.biomass-new.biomass)
+  x[c(1,3)] <- new.biomass
+  x[2] <- x[2] + residual*alloc.soil
+  removal <- residual*(1-alloc.soil)
+  return(x)
+}
+
+disturbance.p <- function(x,                         ## x = Bleaf, Bsoil, Bstem
+                        mu0 = c(1,1),              ## mean leaf & stem % retention after disturbance
+                        V0 = diag(c(0.15,0.25))^2, ## var in post disturbance leaf and stem biomass, 
+                        alloc.soil = 0.25){        ## fraction of removed C that goes in the soil
+  old.biomass <- x[c(1,3)]
+  new.biomass <- tobit(mvtnorm::rmvnorm(1,mu0*old.biomass,tcrossprod(old.biomass,old.biomass)*V0)) ## draw disturbed leaf and stem
   check.max <- which(new.biomass > old.biomass)
   if(length(check.max)>0) new.biomass[check.max] = old.biomass[check.max]
   residual = sum(old.biomass-new.biomass)

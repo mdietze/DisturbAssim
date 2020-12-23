@@ -1,7 +1,8 @@
 # Methods
 
 1. Illustration of problem
-2. Derivation Multinomial
+
+## Derivation of Multinomial Filter
 
 *Priors*
 
@@ -28,13 +29,16 @@ Classes that decreased in relative abundance are reassigned to new classes accor
 $$c_{A|k} = Multinomial\left( n_k, {{\delta p}\over{\sum \delta p}}  \right)$$ 
 
 
-
-*Ensemble adjustment by class*
-
-
-
-
 Conceptual figure
+
+
+## Class-based Ensemble adjustment
+
+
+## VSEM Description
+
+
+## Simulated data experiments
 
 
 3. Simulated data experiments (known disturbance)
@@ -88,3 +92,22 @@ CRS arguments:
 Email to Robert:
 
 I need to extract some example time series for single pixels (e.g. AGB product) where the disturbance it is far enough in the past that there’s an interesting recovery trajectory but also where it’s not so early (so that the data assimilation has time to come into steady-state before the disturbance). From Landtrendr itself I’m looking to know when you attributed the year, severity, and cause so we can see if our assimilation is getting it “right”. Bonus would be if you could suggest places where you know there’s ground data we could use to validate the model (disturbances at flux towers, LTER sites, FIA plots, etc).
+
+
+Things to try:
+* Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
+* Approximation of not simulating disturbed ensemble members and relying SOLEY on ensemble adjustment
+* Analytical approximation of sequential beta-binomial then KF vs full joint model
+
+## Calibration of VSEM
+* 
+
+[@BayesianTools]
+
+
+## Comparison to real-world data
+
+* LandTrendr tile
+* Construction of frequency and transition matrix priors
+
+
