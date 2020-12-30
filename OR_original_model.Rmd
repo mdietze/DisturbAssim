@@ -23,6 +23,7 @@ d.prior = d.prior[-6]
 
 ## Load Calibration
 load("fit.RData")
+Qsoil = Qs
 
 ## Load extracted site timeseries
 load("extract.h03v04.RData")
@@ -85,7 +86,7 @@ SSSD.model <- function(Y,R,Q,PAR,Xic,THETA,dist){
       Y[H] ~ dmnorm(n[H],R[H,H])                       ## Observation error
   }"
   
-  for(t in 1:2){
+  for(t in 1:NT){
     
     ## update IC
     THETA[,9:11]  <- Na    ## Multinomial
@@ -201,7 +202,8 @@ SSSD.model <- function(Y,R,Q,PAR,Xic,THETA,dist){
     #  Na <- dat[sel.ic,nsel]
     Analysis[[t]] <- list(Na = Na,
                           Ca = Ca,
-                          CI = apply(dat,2,quantile,c(0.025,0.25,0.5,0.75,0.975))
+                          CI = apply(dat,2,quantile,c(0.025,0.25,0.5,0.75,0.975)),
+                          mu = apply(dat,2,mean,na.rm=TRUE)
     )
   }
   return(list(Forecast=Forecast,Analysis=Analysis))
@@ -258,21 +260,37 @@ pairs(ICprior)
 
 ## analyze sites - just one disturbance
 ```{r}
-i = 181  # 177:263 = #fire
-NT = floor(ncol(rad)/365)
-Yi = matrix(NA,NT,3)  ## observed data
-Yi[1:ncol(Yw),3] = Yw[i,]  ## only Cw observed
-R = diag(rep(Rw/1000,3))    ## observation error   ### div 1000 is test
-Q = diag(c(Ql,Qs,Qw)^2)*10  ## process error
-dist <- list(              ## disturbance parameters
-  p.dist = d.prior[4],     ## disturbance probability
-  mu0 = c(0.2,PBBAR[4,4]),   ## % retention [leaf,agb], first parameter made up, should include soil
-  V0 =  diag(c(0.15,PBVAR[4,4])^2), #variance in retention
-  alloc.soil = 0.05        ## made up  
-)
-test = SSSD.model(Y = Yi,R=R,Q=Q,
+Rmult = c(1,0.1,0.01,0.001)
+Qmult = c(1,10)
+Pmult = c(1)
+Ri = 4 #4
+Qi = 1 #2
+Pi = 1
+#i = 181  # 177:263 = #fire
+od = c(83:176,264:356)
+for(i in 83:356){
+  ofile = paste0("OR_SD_",
+                 formatC(i, width = 3, format = "d", flag = "0"),
+                 "_P",Pi,"Q",Qi,"R",Ri,".RData")
+  print(ofile)
+  NT = floor(ncol(rad)/365)
+  Yi = matrix(NA,NT,3)  ## observed data
+  Yi[1:ncol(Yw),3] = Yw[i,]  ## only Cw observed
+  R = diag(rep(Rw,3))*Rmult[Ri]    ## observation error
+  Q = diag(c(Ql,Qsoil,Qw)^2)*Qmult[Qi]  ## process error
+  dtype = which(names(d.prior) == dextract[i,"t2004"])
+  if(length(dtype)==0) break
+  dist <- list(              ## disturbance parameters
+    p.dist = d.prior[dtype]*Pmult[Pi],     ## disturbance probability
+    mu0 = c(0.2,PBBAR[4,dtype]),   ## % retention [leaf,agb], first parameter made up, should include soil
+    V0 =  diag(c(0.15,PBVAR[4,dtype])^2), #variance in retention
+    alloc.soil = 0.05        ## made up  
+  )
+  test = SSSD.model(Y = Yi,R=R,Q=Q,
                   PAR=rad[i,],Xic=ICprior,THETA=theta[1:11],
                   dist = dist)
+  save(test,file=ofile)
+}
 ```
 
 
@@ -328,11 +346,246 @@ for(i in 1:3){
 
 ## postprocessing
 
+```{r}
+## Detect set of experiments that have been run
+runs <- dir(pattern="*.RData")
+runs <- runs[grepl("^OR",runs)]
+exp = sapply(strsplit(runs,"_",fixed=TRUE),function(x){
+  sub(".RData","",x[4],fixed = TRUE)
+})
+exps <- unique(exp)
+
+## load experiments that haven't yet been summarized
+# elist <- list()   ## run once
+t04 = 15            ## time of disturbance assessement (2004)
+tlo = 28            ## time of last observation
+for(i in seq_along(exps)){
+  if(is.null(elist[[exps[i]]])){
+    esel <- which(exp==exps[i])
+    distrate = rep(NA,nrow(dextract))
+    divergence = predist = distsize = matrix(NA,nrow(dextract),6) ## pre and post disturbance biomass pools (w/uncertainty)
+    for(j in seq_along(esel)){
+      ## load file
+      load(runs[esel[j]])
+      k = as.numeric(unlist(strsplit(runs[esel[j]],"_",fixed=TRUE))[3])
+
+      ## extract detection rate
+      distrate[k]=test$Analysis[[t04]]$mu["D"]
+
+      ## capture of disturbance change
+      predist[k,1]    = test$Analysis[[t04-1]]$mu["n[3]"]
+      predist[k,2:6]  = test$Analysis[[t04-1]]$CI[,"n[3]"]
+      distsize[k,1]   = test$Analysis[[t04]]$mu["n[3]"]
+      distsize[k,2:6] = test$Analysis[[t04]]$CI[,"n[3]"]
+      
+      ## Filter divergence
+      divergence[k,1]   = test$Analysis[[tlo]]$mu["n[3]"]
+      divergence[k,2:6] = test$Analysis[[tlo]]$CI[,"n[3]"]
+    } ## end loop over individual runs
+    
+    elist[[exps[i]]] = list(distrate=distrate,predist=predist,
+                            distsize=distsize,divergence=divergence)
+    
+  } ## end if not processed
+  
+} ## end loop over experiments
+
+## grab matching data
+obs.pre  = Yw[,t04-1]
+obs.dist = Yw[,t04]
+obs.tlo  = Yw[,tlo]
+obs.class= dextract[,"t2004"]/10
+```
+
+
+## analyses
+
+```{r}
+pdf("OR_exps_diagnostics.pdf")
+trim <- function(x,lo=0.0001,hi=0.9999){
+  x[x<lo] <- lo
+  x[x>hi] <- hi
+  return(x)
+}
+betatrim <- function(y){
+    n.obs <- sum(!is.na(y))
+    (y * (n.obs - 1) + 0.5) / n.obs
+}
+stats <- list()
+for(i in seq_along(exps)){
+  
+  ## divergence
+  div = (elist[[i]]$divergence[,1] - obs.tlo)/
+    (apply(elist[[i]]$divergence[,c(2,6)],1,diff)*0.5)
+  div.reg    = lm(div~obs.tlo)
+  div.median = median(div,na.rm = TRUE)
+  div.cov    = sum(div < 1 & div > -1,na.rm=TRUE)/sum(!is.na(div))
+
+  
+  hist(div,main=exps[i])
+  abline(v=c(-1,1),lty=2)
+  plot(obs.tlo,div,col=obs.class,main=exps[i])
+  abline(h=c(-1,1),lty=2)
+  abline(div.reg,col=2)
+  
+  ## Disturbance detection
+  distrate = elist[[i]]$distrate
+  hist(distrate,main=exps[i])
+  
+  ## Disturbance skill
+  ord <- order(distrate)
+  plot(distrate[ord],col=obs.class[ord],main=exps[i])
+  dist.bar   = mean(distrate,na.rm = TRUE)
+  dist.class = tapply(distrate,obs.class,mean,na.rm=TRUE)
+  
+  ## vs predisturbance biomass
+  distrate2 = betatrim(distrate)
+  pred.seq = data.frame(obs.pre=seq(0,max(obs.pre,na.rm = TRUE),length=500),
+                        distprop = seq(-1,1,length=500))
+  dist.reg.pre  = lm(distrate ~ obs.pre)
+  dist.beta.pre = betareg::betareg(distrate2 ~ obs.pre,
+                                   na.action=na.omit,link="logit")
+  plot(obs.pre,distrate,col=obs.class,main=exps[i])
+  abline(dist.reg.pre,col=2)
+  lines(pred.seq$obs.pre,predict(dist.beta.pre,newdata=pred.seq),col="green")
+  
+  ## vs proportional disturbance size
+  distprop = 1 - elist[[i]]$distsize[,1]/elist[[i]]$predist[,1] ## predicted
+  distprop = 1 - obs.dist/obs.pre ## observed
+  dist.beta.prop = betareg::betareg(distrate2 ~ distprop,
+                                   na.action=na.omit,link="logit")
+  plot(distprop,distrate,col=obs.class,main=exps[i])
+  lines(pred.seq$distprop,predict(dist.beta.prop,newdata=pred.seq),col="green")
+  
+  ## vs ABSOLUTE disturbance size
+  distabs = obs.pre-obs.dist
+  pred.seq$distabs = seq(min(distabs),max(distabs),length=500)
+  dist.beta.abs = betareg::betareg(distrate2 ~ distabs | distabs,
+                                   na.action=na.omit,
+                                   link="logit",
+                                   link.phi = "identity",
+                                   start=c(0,5,0.5,0),
+                                   type="BR")
+  dist.qb.abs = glm(distrate ~ distabs,
+                    na.action=na.omit,
+                    family=quasibinomial("logit")
+  )
+  dist.bin.abs = glm(round(distrate) ~ distabs,
+                    na.action=na.omit,
+                    family=binomial("logit")
+  )
+  plot(distabs,distrate,col=obs.class,main=exps[i])
+  lines(pred.seq$distabs,predict(dist.beta.abs,newdata=pred.seq,type="quantile"),col="green")
+  lines(pred.seq$distabs,predict(dist.beta.abs,newdata=pred.seq,type="quantile",at=0.75),col="green",lty=2)
+  lines(pred.seq$distabs,predict(dist.beta.abs,newdata=pred.seq,type="quantile",at=0.25),col="green",lty=2)
+  lines(pred.seq$distabs,predict(dist.qb.abs,newdata=pred.seq,type="response"),col="purple")
+  lines(pred.seq$distabs,predict(dist.bin.abs,newdata=pred.seq,type="response"),col="blue")
+
+  ## vs divergence
+  absdiv = abs(div)
+  dist.beta.absdiv = betareg::betareg(distrate2 ~ absdiv,
+                                   na.action=na.omit,link="logit")
+  dist.bin.absdiv = glm(round(distrate) ~ absdiv,
+                                   na.action=na.omit,
+                        family = binomial("logit"))
+  pred.seq$absdiv = seq(0,max(absdiv,na.rm=TRUE),length=500)
+  plot(absdiv,distrate,col=obs.class,main=exps[i])
+  abline(v=c(-1,1),lty=2,col=3)
+  abline(lm(distrate ~ absdiv),col=2)
+  lines(pred.seq$absdiv,predict(dist.beta.absdiv,newdata=pred.seq),col="green")
+  lines(pred.seq$absdiv,predict(dist.bin.absdiv,newdata=pred.seq,type="response"),col="blue")
+
+ dist.qb.combo = glm(distrate2 ~ obs.pre + distprop +
+                        distabs + absdiv + obs.class,
+                      na.action=na.omit,
+                      family=quasibinomial("logit"))
+  dist.bin.combo = glm(round(distrate) ~ obs.pre + distprop +
+                        distabs + absdiv + as.factor(obs.class),
+                      na.action=na.omit,
+                      family=binomial("logit"))
+  
+# dist.beta.combo = betareg::betareg(distrate2 ~ obs.pre + obs.class + distabs + absdiv,
+#                                   na.action=na.omit,link="logit")
+  
+  stats[[i]] <- list(
+    div.reg = div.reg,
+    div.median = div.median,
+    div.cov = div.cov,
+    dist.bar = dist.bar,
+    dist.class = dist.class,
+    dist.pre =  dist.beta.pre,
+    dist.prop = dist.beta.prop,
+    dist.beta.abs =  dist.beta.abs,
+    dist.bin.abs  = dist.bin.abs,
+    dist.absdiv   = dist.beta.absdiv,
+    dist.combo = dist.bin.combo
+  )
+
+}
+dev.off()
+```
+
+
+factors affecting detection of disturbance
+```{r}
+Ps = as.numeric(substr(names(elist),2,2))
+Qs = as.numeric(substr(names(elist),4,4))
+Rs = as.numeric(substr(names(elist),6,6))
+
+## P
+
+## Q
+
+## R
+
+## Divergence
+div.cov = sapply(stats,"[[","div.cov")
+plot(Rmult[Rs],div.cov,col=Qs,log="x",xlab="Variance Multiplier",ylab="Filter Coverage")
+
+div.median = sapply(stats,"[[","div.median")
+plot(Rmult[Rs],div.median,col=Qs,log="x",xlab="Variance Multiplier",ylab="Median Divergance")
+
+div.slope = sapply(stats,function(x){coef(x$div.reg)[2]})
+plot(Rmult[Rs],div.slope,col=Qs,log="x",xlab="Variance Multiplier",ylab="Divergance Slope")
+## Disturbance @ default
+summary(stats[[4]]$dist.combo)
+## nothing matters
+
+## Disturbance @ P1Q2R2 (intermediate)
+summary(stats[[4]]$dist.combo)
+## detection varies with divergence & disturbance type
+
+## Disturbance magnitude: P1Q1R4
+i = 3
+summary(stats[[i]]$dist.combo)  ## absolute magnitude of divergence is best predictor
+summary(stats[[i]]$dist.bin.abs)
+beta = coef(stats[[i]]$dist.bin.abs)
+## threshold mx+b = 0
+thresh = -beta[1]/beta[2] 
+
+## Disturbance type: P1Q1R4 (reduced divergence)
+stats[[i]]$dist.class
+tapply(distabs,obs.class,summary) ## obs dist size by class
+thresh.prop = tapply(distabs,obs.class,function(x){sum(x>thresh,na.rm = TRUE)/sum(!is.na(x))}) ## prop > detection threshold
+thresh.prop
+stats[[i]]$dist.class
+dclass = stats[[i]]$dist.class
+#dclass[1] = 0
+dcol = as.numeric(names(stats[[i]]$dist.class)) + 1
+plot(thresh.prop,dclass,col=dcol,pch=19)
+abline(0,1,lty=2,col=2)
+legend("topleft",legend = dcol-1,col=dcol,pch=19)
+
+
+## additional experiments to run (P1Q1R4)
+```
+
 false positives
 
 false negatives
 
 classification success
+
 
 ## Next steps:
 * Run with multiple disturbance options and PFT switching

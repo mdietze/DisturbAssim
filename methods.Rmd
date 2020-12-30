@@ -1,5 +1,13 @@
 # Methods
 
+## VSEM (Very Simple Ecosystem Model)
+
+To illustrate the problem of assimilating disturbance, and present potential solutions, we make use of the Very Simple Ecosystem Model (VSEM), a daily-timestep point-scale model developed by David Cameron that is available in the BayesianTools R package [@BayesianTools]. VSEM contains three carbon pools, leaf (Cl), wood (Cw), and soil (Cs), and calculates leaf area index based on specific leaf area (SLA), $LAI = SLA*Cl$. Gross Primary Productivity (GPP) is estimated based on incoming photosynthetically active radiation (PAR), light use efficiency (LUE), and Beer's Law light interception ($1-exp(-K_{ext}\cdot LAI)$) with a extinction coefficient $K_{ext}$. Autotrophic respiration, Ra, is a fixed fraction, $\Gamma$ of GPP. Of the remaining carbon (net primary productivity), a fixed fraction, $Av$, is allocated to leaves and the remainder is allocated to wood. Leaves and wood turnover into soil C based on fixed longevities, $\tau_l$ and $\tau_w$, while heterotrophic respiration, Rh, occurs based on a fixed residence time $\tau_s$. Net Ecosystem Exchange follows the atmospheric sign convention $Ra + Rh - GPP$. The VSEM was selected for its speed and ease of understanding, but its fundamental structure is analogous to much more complex, large-scale terrestrial carbon models. 
+
+## Ensemble Adjustment Kalman Filter
+
+To 
+
 1. Illustration of problem
 
 ## Derivation of Multinomial Filter
