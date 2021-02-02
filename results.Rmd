@@ -1,0 +1,35 @@
+# Results
+
+1. Simulated data experiments (known disturbance)
+  + Single Site, Single Disturbance
+
+Figures showing the current problem, solution, and that we've got a genuine multimodal distribution and P(dist)
+
+  + SSSD Multi Pool
+
+Figures showing pool cov, C accounting / attribution 
+  
+  + SS Multi-Disturbance w/ PFT switching
+
+Figure showing PFT switching vs not, ability to detect disturbance type  
+
+  + Simple Multi-site: spatial cov
+  
+Figure showing "dragging down" of neighbors in conventional and breaking of COV in Multinomial
+  
+2. Real-world examples
+  + Calibrate state-and-transition prior
+    * data: (samples from) maps of disturbance type by year
+    * model: Multinomial Dirlichet
+
+Figure showing map and estimated priors
+  
+  + Applications
+    + Logging
+    + Fire
+    + Land use transition (forest -> non?)
+    
+* RESULTS
+  * needed to reduce obs and process error to work
+  * abs magnitude of disturbance is best predictor of assim prob.
+    * given magnitude, dist type n.s.

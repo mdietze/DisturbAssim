@@ -584,7 +584,7 @@ legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","dat
        lwd=5,col=c("orange","#b2df8a","blue","red","black"))
 
 ### Save outputs required to include figure in Results
-save(data,CI.fN,time,an0.stats,an.stats,NT,Dbar,file="SSSD.RData")
+save(data,CI.fN,time,an0.stats,an.stats,NT,Dbar,xlim,col,file="SSSD.RData")
 
 ```
 

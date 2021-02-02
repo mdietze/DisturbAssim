@@ -159,23 +159,3 @@ CRS arguments:
   * run other versions varying R, Q, and the disturbance probability
   * Score: filter divergence, disturbance detection & skill
   * Regress vs: pre-disturbance biomass, size of disturbance (abs & rel), type, etc
-
-* RESULTS
-  * needed to reduce obs and process error to work
-  * abs magnitude of disturbance is best predictor of assim prob.
-    * given magnitude, dist type n.s.
-
-* FUTURE DIR
-  * disturbance products are 'seeing' more than is in AGB product alone
-    * also would benifit from more products (e.g. LAI)
-  * would be good to add 'memory' to algorithm so further evidence of disturbance reinforces initial detection (similar to BLC); would allow reduction in time step and greater sensor fusion
-
-
-
-
-
-
-Future Notes:
-* Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
-* Approximation of not simulating disturbed ensemble members and relying SOLEY on ensemble adjustment
-* Analytical approximation of sequential beta-binomial then KF vs full joint model
