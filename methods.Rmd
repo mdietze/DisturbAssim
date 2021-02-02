@@ -4,24 +4,56 @@
 
 To illustrate the problem of assimilating disturbance, and present potential solutions, we make use of the Very Simple Ecosystem Model (VSEM), a daily-timestep point-scale model developed by David Cameron that is available in the BayesianTools R package [@BayesianTools]. VSEM contains three carbon pools, leaf (Cl), wood (Cw), and soil (Cs), and calculates leaf area index based on specific leaf area (SLA), $LAI = SLA*Cl$. Gross Primary Productivity (GPP) is estimated based on incoming photosynthetically active radiation (PAR), light use efficiency (LUE), and Beer's Law light interception ($1-exp(-K_{ext}\cdot LAI)$) with a extinction coefficient $K_{ext}$. Autotrophic respiration, Ra, is a fixed fraction, $\Gamma$ of GPP. Of the remaining carbon (net primary productivity), a fixed fraction, $Av$, is allocated to leaves and the remainder is allocated to wood. Leaves and wood turnover into soil C based on fixed longevities, $\tau_l$ and $\tau_w$, while heterotrophic respiration, Rh, occurs based on a fixed residence time $\tau_s$. Net Ecosystem Exchange follows the atmospheric sign convention $Ra + Rh - GPP$. The VSEM was selected for its speed and ease of understanding, but its fundamental structure is analogous to much more complex, large-scale terrestrial carbon models. 
 
-## Ensemble Adjustment Kalman Filter
+## Ensemble Kalman Filter
 
-To 
+The Ensemble Kalman Filter (EnKF) [CITE] is a popular data assimilation algorithm that we use both to demonstrate the challenges conventional data assimilation approached have with capturing discrete disturbances and as our jumping off point for developing more flexible methods. Like most data assimilation algorithms the EnKF involves two cyclic steps: a Forecast step where a model is used to probabalistically predict the system state (and any other outputs) forward in time, and an Analysis step where new observations are used to update system state variables (e.g. carbon pools) and sometimes model parameters. These updated variables are then used as the initial conditions for the next Forecast round.
+
+Within the EnKF, the probabalistic Forecast step is performed using an ensemble of model runs that vary in at least initial conditions, but potentially also model parameters, drivers, and process error. The ensemble forecast approach is easy to apply to any model, is particularly good at capturing nonlinear predictions, and unlike many other approaches does not require solving for the adjoint of the model. In EnKF the forecast, $f$, at any point in time, $t$, is then summarized in terms of a vector of means across ensemble members, $\mu_{f,t}$ and the sample covariance, $P_{f,t}$. In our example we are interested in the three state variables in the VSEM, ${C_l,C_w,C_s}$, at a single site and assume an ensemble size of 200. Therefore $\mu_{f,t}$ is a vector of length 3 and $P_{f,t}$ is a $3 \times 3$ covariance matrix. If we were making a spatial forecast at $n_s$ locations, $\mu_{f,t}$ would be a vector of length $3 n_s$ and $P_{f,t}$ would be a $3 n_s \times 3 n_s$ covariance matrix that would capture the full set of correlations across both variables and space. An important difference between data assimilation and spatial statistics is that in data assimilation the spatial covariance matrix is coming from the mechanistic understanding embedded in our process model, and the spatial covariance in the forecast inputs (initial condition, parameters, drivers, process error), rather than an empirical semivariogram.
+
+The Analysis step in the EnKF is the same as that in the standard Kalman Filter
 
 1. Illustration of problem
+
+
+```{r, echo=FALSE}
+SSSD_figure <- function(){
+  load("SSSD.RData")
+  plot(data$Y,ylim = range(rbind(CI.fN,data$Y)),xlim=xlim,type='n',
+     ylab="LAI",xlab="time")
+  polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
+    an0.stats[1, 1])), border = NA, col = '#FFBF6C')
+  polygon(cbind(c(time, rev(time), 1), c(an.stats[2, ], rev(an.stats[4, ]),
+    an.stats[1, 1])), border = NA, col = ecoforecastR::col.alpha('#b2df8a',0.7))
+  #ecoforecastR::ciEnvelope(1:NT,CIN[1,],CIN[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+  ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
+
+  lines(an0.stats[3,],col="orange",lwd=2)
+  lines(an.stats[3,],col="#b2df8a",lwd=2)
+  #lines(CI.fSSSD[2,],col="blue",lwd=2)
+  lines(CI.fN[3,],col="blue",lwd=2)
+  lines(Dbar,lwd=2)
+  points(data$Y,pch=18,col=2)
+  legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data","P(dist)"),
+       lwd=5,col=c("orange","#b2df8a","blue","red","black"))
+}
+SSSD_figure()
+```
 
 ## Derivation of Multinomial Filter
 
 *Priors*
-
   $$X^L_k \sim MVN(\vec{\mu}_{f,k},P_{f,k})$$
   $$\vec{\rho} \sim Multinomial(1,\vec{p})$$ 
-*Process Model*
 
+*Process Model*
   $$X = X^L \vec{\rho}$$
   
 *Likelihood*
   $$Y \sim MVN(X,R)$$
+
+**ADD Conceptual figure**
+
+
 ### Ensemble Adjustment
 
 [@Anderson2001]
@@ -37,33 +69,29 @@ Classes that decreased in relative abundance are reassigned to new classes accor
 $$c_{A|k} = Multinomial\left( n_k, {{\delta p}\over{\sum \delta p}}  \right)$$ 
 
 
-Conceptual figure
 
+## Simulated data experiments (known disturbance)
 
-## Class-based Ensemble adjustment
-
-
-## VSEM Description
-
-
-## Simulated data experiments
-
-
-3. Simulated data experiments (known disturbance)
-  + describe model
-  + x Single Site, Single Disturbance  (add a case where EnKF has disturb but it's more rare)
-  + x SSSD Multi Pool
+  + x Single Site, Single Disturbance (SSSD)
+      vs. EnKF with and without Disturbance
+  + x SSSD Multi Pool (VSEM)
   + x SS Multi-Disturbance - distinct
   + x SS Multi-Disturbance w/ distinct, PFT switching
       * mention parallel PFT ensembles
       * need to protect against long-term PFT leakage; related to more general need to "look back"
   + x Simple Multi-site: spatial cov
-  + SSMD - initially overlapping but diverge
-      * how to handle updating of assignment based on new information?
-  + SSMD - transition probabilities change with state
-  + rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
-4. Real-world examples
-  + Calibrate state-and-transition prior
+  + Future
+      * SSMD - initially overlapping but diverge
+        * how to handle updating of assignment based on new information?
+      * SSMD - transition probabilities change with state
+        * rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
+     
+## Real-world examples
+
+Extract some example time series for single pixels (e.g. AGB product) where the disturbance (2004) it is far enough in the past that there’s an interesting recovery trajectory but also where it’s not so early (so that the data assimilation has time to come into steady-state before the disturbance).
+
+### Study region and data sources
+
     + Landtrendr
     http://emapr.ceoas.oregonstate.edu/pages/data/viz/index.html
     + Location:
@@ -90,32 +118,64 @@ CRS arguments:
     + Disturbance
       1984-2011
       - nearest neighbor resampled to same as cover
-    + LAI??
-  + Calibrate model
-  + Applications: PNW
+
+ + Applications: PNW
     + Logging
     + Fire
     + Land use transition (forest -> non?)
 
-Email to Robert:
 
-I need to extract some example time series for single pixels (e.g. AGB product) where the disturbance it is far enough in the past that there’s an interesting recovery trajectory but also where it’s not so early (so that the data assimilation has time to come into steady-state before the disturbance). From Landtrendr itself I’m looking to know when you attributed the year, severity, and cause so we can see if our assimilation is getting it “right”. Bonus would be if you could suggest places where you know there’s ground data we could use to validate the model (disturbances at flux towers, LTER sites, FIA plots, etc).
+### Construction of disturbance frequency and transition matrix priors
 
+* recoded to a smaller set of disturbances: none, fire, pest, clearcut, other
+* Calculate frequencies of different disturbance types
+* Calculate disturbance-by-landCover matrix of transition probabilities
+* Use these as disturbance priors
 
-Things to try:
-* Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
-* Approximation of not simulating disturbed ensemble members and relying SOLEY on ensemble adjustment
-* Analytical approximation of sequential beta-binomial then KF vs full joint model
-
-## Calibration of VSEM
-* 
+### Calibration of VSEM
 
 [@BayesianTools]
 
+* Calibrate at US-Me2, 2002-2019 
+* Initialize with BADM soil, leaf, and stem C
+* Priors (and some fixed parameters) using BADM; default uniform for rest
+* Likelihood against tower _annual_ NEE and BADM leaf and stem biomass
+* MCMC using DEzs algorithm for 25000 iterations of 2 chains
+* GBR, effective sample
 
-## Comparison to real-world data
+### Comparison to real-world data
 
-* LandTrendr tile
-* Construction of frequency and transition matrix priors
+* Selected conifer forest land cover type
+* Sampled ~100 points from each disturbance type for 2004
+* Daymet PAR as driver
+* IC
+  * ensemble spin up
+  * construct disturbance recovery trajectory
+  * Extract rs map AGB
+  * Match leaf and soil C from spin-up trajectory
+
+* Experiments
+  * run SSSDMP model for each site independently
+  * run other versions varying R, Q, and the disturbance probability
+  * Score: filter divergence, disturbance detection & skill
+  * Regress vs: pre-disturbance biomass, size of disturbance (abs & rel), type, etc
+
+* RESULTS
+  * needed to reduce obs and process error to work
+  * abs magnitude of disturbance is best predictor of assim prob.
+    * given magnitude, dist type n.s.
+
+* FUTURE DIR
+  * disturbance products are 'seeing' more than is in AGB product alone
+    * also would benifit from more products (e.g. LAI)
+  * would be good to add 'memory' to algorithm so further evidence of disturbance reinforces initial detection (similar to BLC); would allow reduction in time step and greater sensor fusion
 
 
+
+
+
+
+Future Notes:
+* Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
+* Approximation of not simulating disturbed ensemble members and relying SOLEY on ensemble adjustment
+* Analytical approximation of sequential beta-binomial then KF vs full joint model
