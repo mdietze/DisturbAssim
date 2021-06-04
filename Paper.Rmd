@@ -15,9 +15,7 @@ bibliography: bibliography.bibtex
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Outline
-
-# Abstract
+# Abstract {-}
 
 # Intro
 

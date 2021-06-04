@@ -6,57 +6,65 @@ To illustrate the problem of assimilating disturbance, and present potential sol
 
 ## Ensemble Kalman Filter
 
-The Ensemble Kalman Filter (EnKF) [CITE] is a popular data assimilation algorithm that we use both to demonstrate the challenges conventional data assimilation approached have with capturing discrete disturbances and as our jumping off point for developing more flexible methods. Like most data assimilation algorithms the EnKF involves two cyclic steps: a Forecast step where a model is used to probabalistically predict the system state (and any other outputs) forward in time, and an Analysis step where new observations are used to update system state variables (e.g. carbon pools) and sometimes model parameters. These updated variables are then used as the initial conditions for the next Forecast round.
+The Ensemble Kalman Filter (EnKF) [@Evensen2009; @Evensen2009a] is a popular data assimilation algorithm that we use both to demonstrate the challenges conventional data assimilation approached have with capturing discrete disturbances and as our jumping off point for developing more flexible methods. Like most data assimilation algorithms the EnKF involves two cyclic steps: a Forecast step where a model is used to probabalistically predict the system state (and any other outputs) forward in time, and an Analysis step where new observations are used to update system state variables (e.g. carbon pools) and sometimes model parameters. These updated variables are then used as the initial conditions for the next Forecast round.
 
-Within the EnKF, the probabalistic Forecast step is performed using an ensemble of model runs that vary in at least initial conditions, but potentially also model parameters, drivers, and process error. The ensemble forecast approach is easy to apply to any model, is particularly good at capturing nonlinear predictions, and unlike many other approaches does not require solving for the adjoint of the model. In EnKF the forecast, $f$, at any point in time, $t$, is then summarized in terms of a vector of means across ensemble members, $\mu_{f,t}$ and the sample covariance, $P_{f,t}$. In our example we are interested in the three state variables in the VSEM, ${C_l,C_w,C_s}$, at a single site and assume an ensemble size of 200. Therefore $\mu_{f,t}$ is a vector of length 3 and $P_{f,t}$ is a $3 \times 3$ covariance matrix. If we were making a spatial forecast at $n_s$ locations, $\mu_{f,t}$ would be a vector of length $3 n_s$ and $P_{f,t}$ would be a $3 n_s \times 3 n_s$ covariance matrix that would capture the full set of correlations across both variables and space. An important difference between data assimilation and spatial statistics is that in data assimilation the spatial covariance matrix is coming from the mechanistic understanding embedded in our process model, and the spatial covariance in the forecast inputs (initial condition, parameters, drivers, process error), rather than an empirical semivariogram.
+Within the EnKF, the probabalistic Forecast step is performed using an ensemble of model runs that vary in at least initial conditions, but potentially also model parameters, drivers, and process error. The ensemble forecast approach is easy to apply to any model, is particularly good at capturing nonlinear predictions, and unlike many other approaches does not require solving for the adjoint of the model. In EnKF the forecast, $f$, at any point in time, $t$, is then summarized in terms of a vector of means across ensemble members, $\mu_{f,t}$ and the sample covariance, $P_{f,t}$. In our example we are interested in the three state variables in the VSEM, ${C_l,C_w,C_s}$, at a single site and assume an ensemble size of 200. Therefore $\mu_{f,t}$ is a vector of length 3 and $P_{f,t}$ is a $3 \times 3$ covariance matrix. If we were making a spatial forecast at $n_s$ locations, $\mu_{f,t}$ would be a vector of length $3 n_s$ and $P_{f,t}$ would be a $3 n_s \times 3 n_s$ covariance matrix that would capture the full set of correlations across both variables and space. An important difference between data assimilation and spatial statistics is that in data assimilation the spatial covariance matrix comes from (1) the mechanistic understanding embedded in our process model and (2) the spatial covariance in the forecast inputs (initial conditions, parameters, drivers, process error), rather than an empirical semivariogram.
 
-The Analysis step in the EnKF is the same as that in the standard Kalman Filter
+The Analysis step in the EnKF is the same as that in the standard Kalman Filter. Because the forecast step from t-1 to t occurs prior to the observed data at time t, $Y_t$, the forecast of our three state variables is used as an informative _prior_ distribution and is assumed to follow a multivariate Normal (MVN) distribution with mean $\mu_{f,t}$ and covariance $P_{f,t}$. The EnKF also acknowledges that the observed data at time t, $Y_t$, is measured imperfectly. Observation error is assumed to follow a MVN distribution with an observation error covariance matrix $R$. Furthermore, it is assumed that $R$ is known, which is not unreasonable as many derived data products and sensors report uncertainties, and uncertainties from field data can often be inferred from sampling theory or Monte Carlo resampling / bootstrapping. In many cases new data do not exist for every state variable (e.g. we may observe leaves and wood but not soil C) and so an observation operator matrix, $H$ is also introduced, which in most cases is just a $n \times m$ indicator matrix matching the observed $Y$'s (n=2 in this example) with the vector of state variables (m=3 in this example). Indeed, one of the powerful features of data assimilation is its ability to update unobserved state variables based on the covariances between observed and unobserved variables. Putting this all together, Bayes' Theorem can then be used to update our MVN forecast prior, given a MVN Likelihood of $Y_t$ with covariance $R$, giving an analytically-tractable conjugate MVN posterior with mean $\mu_{a,t}$ and covariance $P_{a,t}$:
 
-1. Illustration of problem
+$$P_{a,t}^{-1} = H_t^T R_t^{-1} H_t + P_{f,t}^{-1}$$
+$$\mu_{a,t} =  P_{a,t}^{-1}\left( H_t^T R^{-1} Y_{t} + P_{f,t}^{-1} \mu_{f,t} \right) $$
 
+The subscript $a$ is used to refer to the Analysis posterior and distinguish this from the prior forecast $f$ mean and covariance for the same timestep. While the matrix notation in these equations can make these solutions look complicated, the underlying meaning is accessible. First, the precision of the analysis (i.e. 1/variance) is the sum of the observation precision and the forecast precision, meaning that the analysis is always more precise than the data or forecast alone. Second, the mean of the analysis is a weighted average between the data, $Y_t$ and the forecast $mu_{f,t}$, each weighted by their precision. This averaging can also be viewed as a 'nudge', pushing the forecast toward the new data, with the magnitude of that nudge determined by the uncertainties in both the forecast and data (i.e. highly precise data = big nudge, highly uncertain data = very small nudge).
 
-```{r, echo=FALSE}
+While this fusion of forecast and new data is an incredibly powerful concept, as alluded to in the _Introduction_ there are times that the Kalman Normal-Normal "nudge" produces results that don't always make sense. Consider as a simple example a simulated data experiment where LAI growth follows a simple stochastic logistic model with growth rate $r$=0.1, equilibrium $K$=6, process error standard deviation 0.25, and observation error standard deviation 0.75. Under normal conditions, EnKF would have no trouble nudging a LAI forecast back on track every time a new observation is made, but what if a discrete disturbance event occurs knocking LAI from steady-state down to $1.0 \pm 0.5$? In this case the compromise between the forecast ($LAI=6$) and observations ($LAI=1$) produces a compromise ($LAI \approx 5$ that is a poor representation of the state of the system (Figure \@ref(fig:enkf)). Furthermore, as the true LAI slowly recovers upward, the EnKF keeps gradually nudging LAI downward until the two converge. Not only is the assimilated state wrong, but so is our estimate of the process -- a discrete disturbance and rapid recovery is behaving like gradual degradation, which will lead to incorrect inferences about related processes (litter, soil C, NPP, NEE, ET, albedo, etc.). Not also that including a disturbance probability in the process model does not solve this problem. Assuming the disturbance probability is low (e.g. a background rates of <1%), at every point in time the forecast would include a small number of disturbed ensemble members, but the overwhelming majority would be undisturbed. Therefore $\mu_{f,t}$ will be relatively unchanged and $P_{f,t}$ would see a small increase in variance. The fundamental problem is that even though the true forecast is now bimodal (a large peak at the undisturbed state and a much smaller peak at the disturbed state), the EnKF is still representing this as a unimodal Normal. Indeed, if the you increased the disturbance probability substantially (e.g. 50%), the EnKF would treat this as a unimodal forecast half way between the disturbed and undisturbed states, a place where no ensemble members are present.
+
+```{r enkf, echo=FALSE, fig.cap="Example assimilation of a disturbance event shows that conventional assimilation approaches, such as EnKF, take time to converge to new states after disturbance (orange). By modeling the probability of disturbance (black) our Multinomial assimilation (blue) can correctly jump between states during disturbance events (e.g. P(disturbance) = 0.977 at time 10) while remaining resilient to potential false-positive events (e.g. time 12 and 15)."}
 SSSD_figure <- function(){
-  load("SSSD.RData")
+  load("SSSD.RData")      ## simulation from SingleSite_SingleDisturbance.Rmd
   plot(data$Y,ylim = range(rbind(CI.fN,data$Y)),xlim=xlim,type='n',
      ylab="LAI",xlab="time")
   polygon(cbind(c(time, rev(time), 1), c(an0.stats[2, ], rev(an0.stats[4, ]),
-    an0.stats[1, 1])), border = NA, col = '#FFBF6C')
-  polygon(cbind(c(time, rev(time), 1), c(an.stats[2, ], rev(an.stats[4, ]),
-    an.stats[1, 1])), border = NA, col = ecoforecastR::col.alpha('#b2df8a',0.7))
-  #ecoforecastR::ciEnvelope(1:NT,CIN[1,],CIN[3,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
-  ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256))
-
-  lines(an0.stats[3,],col="orange",lwd=2)
-  lines(an.stats[3,],col="#b2df8a",lwd=2)
-  #lines(CI.fSSSD[2,],col="blue",lwd=2)
-  lines(CI.fN[3,],col="blue",lwd=2)
-  lines(Dbar,lwd=2)
-  points(data$Y,pch=18,col=2)
-  legend("topright",legend=c("EnKF, no disturb","EnKF, disturb","Multinomial","data","P(dist)"),
-       lwd=5,col=c("orange","#b2df8a","blue","red","black"))
+    an0.stats[1, 1])), border = NA, col = '#FFBF6C')   ## EnKF interval
+  ecoforecastR::ciEnvelope(1:NT,CI.fN[2,],CI.fN[4,],col=rgb(col[1],col[2],col[3],0.3*256,maxColorValue=256)) ## Multinomial interval
+  lines(an0.stats[3,],col="orange",lwd=2)   ## EnKF median
+  lines(CI.fN[3,],col="blue",lwd=2)         ## Multinomial median
+  lines(Dbar,lwd=2)                         ## Multinomial disturbance rate
+  points(data$Y,pch=18,col=2)               ## data
+  legend("topright",legend=c("EnKF","Multinomial","data","P(dist)"),
+       lwd=5,col=c("orange","blue","red","black")) ##"#b2df8a"
 }
 SSSD_figure()
 ```
 
-## Derivation of Multinomial Filter
+## Derivation of the Multinomial Filter
 
-*Priors*
-  $$X^L_k \sim MVN(\vec{\mu}_{f,k},P_{f,k})$$
-  $$\vec{\rho} \sim Multinomial(1,\vec{p})$$ 
+To address this fundamental flaw in the Kalman Analysis, we need to build into the Analysis step both the possibility for ensemble forecasts to be multimodel, and the ability for the data assimilation to jump discretely between modes all-at-once rather than through gradual nudges. To begin, let's use $X$ to represent the latent (unobserved) "true" state of the system. Furthermore, we will consider a process-model that is capable of predicting $k$ different categorical outcomes (land cover classes, types of disturbance, etc.) each of which has its own prediction for the latent continuous state variables of interest, which we'll refer to as $X^L_{k,t}$. Similar to the EnKF we'll assume that the ensemble prediction for any one of these categories can be represented as a multivariate Normal based on the ensemble sample mean and covariance:
 
-*Process Model*
-  $$X = X^L \vec{\rho}$$
+$$X^L_{k,t} \sim MVN(\vec{\mu}_{f,k,t},P_{f,k,t})$$
   
-*Likelihood*
-  $$Y \sim MVN(X,R)$$
+However, because we have $k$ categories we end up with a multimodel prediction. Furthermore, these modes need not be distinct; it is perfectly fine in concept for these MVNs to be overlapping. In practice they more they overlap the harder it is to identify which mode you are in, but as we will see this categorical assignment will be treated probabalistically. Indeed, to be able to represent our multimodel prediction as a single probability distribution we need to know the _forecasted_ probability of being in each category, which we'll take as known and represent using the vector $\vec{p_t}$, giving us a weighted MVN mixture as our forecast.
 
-**ADD Conceptual figure**
+In practice, an individual location can only be in one of these $k$ states, which we'll model using a Multinomial distribution with a sample size of 1.
+  
+$$\vec{\rho_t} \sim Multinomial(1,\vec{p_t})$$ 
+  
+This is a generalization of the Bernoulli distribution (Binomial with n=1) and for any individual draw from the Multinomial $\vec{\rho_t}$ will be a vector of length $k$ with a 1 in the category being assigned and a 0 for all other categories. 
 
+Within the analysis step we will retain the assumption that the observed data $Y_t$ follow a multivariate Normal distribution around the true latent $X_t$ with observation error $R_t$
+
+$$Y_t \sim MVN(X_t,R_t)$$
+
+We then model $X_t$ as the product of the matrix $X^L_t$ and the vector $\vec{\rho_t}$
+
+$$X_t = X^L_t \vec{\rho_t}$$
+which for any individual draw of $\vec{\rho_t}$ assigns $X_t$ that specific $X^L_{k,t}$. In practice, we will use Bayes' Theorem to integrate over the uncertainties in both our categorical assignment and continuous state variables, producing posterior Analysis probability distributions for both $X_t$ and $\vec{\rho_t}$. Unlike in the EnKF, where conjugacy allows us to calculate an analytical solution for the posterior, there is not simple analytical solution for the joint posterior distribution of $X_t$ and $\vec{\rho_t}$. In this case we will use well-developed Bayesian Markov Chain Monte Carlo (MCMC) numerical algorithms to sample from the posterior distribution. Specifically, numerical analyses in this paper were conducted using JAGS v4.2.0 [@Plummer03] accessed from R v4.0.3 [@Rcore] using the rjags package v4.10 [@rjags].
 
 ### Ensemble Adjustment
 
-[@Anderson2001]
+When making ensemble forecasts using the Analysis from the traditional EnKF, one needs to sample new initial conditions from the Analysis joint posterior distribution. This work fine if the initial conditions are complete (100% of the model variables represented) and when there is no covariance with any of the other uncertainties being propagated (e.g. sampling ensemble drivers or posterior parameter distributions). In practice, this assumption is frequently violated, for example an above average ensemble member might be above average not just because of its initial condition, but also because it had favorable parameters or drivers, creating a complex covariance between states, parameters, and drivers that would be destroyed by randomly resampling initial conditions. Because of this Anderson et al. [-@Anderson2001] developed an alternative know as _ensemble adjustment_ that nudges individual ensemble members toward the posterior analysis mean and covariance. Mathematically, the approach is essentially the multivariate generalization of using the prior forecast mean and variance to calculate a Z-score for every ensemble member (i.e. express as an standard Normal anomaly with mean 0 and standard deviation 1), and then apply that Z-score to the new posterior analysis mean and variance. In our Multinomial filter it is important to generalize this concept of ensemble adjustment to preserve covariances when updating the discrete categorical assignments of individual ensemble members.
+
+when individual ensemble members are moved fro
 
 *reassignment of classes*
 
