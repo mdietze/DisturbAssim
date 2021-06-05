@@ -62,27 +62,46 @@ which for any individual draw of $\vec{\rho_t}$ assigns $X_t$ that specific $X^L
 
 ### Ensemble Adjustment
 
-When making ensemble forecasts using the Analysis from the traditional EnKF, one needs to sample new initial conditions from the Analysis joint posterior distribution. This work fine if the initial conditions are complete (100% of the model variables represented) and when there is no covariance with any of the other uncertainties being propagated (e.g. sampling ensemble drivers or posterior parameter distributions). In practice, this assumption is frequently violated, for example an above average ensemble member might be above average not just because of its initial condition, but also because it had favorable parameters or drivers, creating a complex covariance between states, parameters, and drivers that would be destroyed by randomly resampling initial conditions. Because of this Anderson et al. [-@Anderson2001] developed an alternative know as _ensemble adjustment_ that nudges individual ensemble members toward the posterior analysis mean and covariance. Mathematically, the approach is essentially the multivariate generalization of using the prior forecast mean and variance to calculate a Z-score for every ensemble member (i.e. express as an standard Normal anomaly with mean 0 and standard deviation 1), and then apply that Z-score to the new posterior analysis mean and variance. In our Multinomial filter it is important to generalize this concept of ensemble adjustment to preserve covariances when updating the discrete categorical assignments of individual ensemble members.
+When making ensemble forecasts using the Analysis from the traditional EnKF, one needs to sample new initial conditions from the Analysis joint posterior distribution. This work fine if the initial conditions are complete (100% of the model variables represented) and when there is no covariance with any of the other uncertainties being propagated (e.g. sampling ensemble drivers or posterior parameter distributions). In practice, this assumption is frequently violated, for example an above average ensemble member might be above average not just because of its initial condition, but also because it had favorable parameters or drivers, creating a complex covariance between states, parameters, and drivers that would be destroyed by randomly resampling initial conditions. Because of this Anderson et al. [-@Anderson2001] developed an alternative know as _ensemble adjustment_ that nudges individual ensemble members toward the posterior analysis mean and covariance. Mathematically, the approach is essentially the multivariate generalization of using the prior forecast mean and variance to calculate a Z-score for every ensemble member (i.e. express as an standard Normal anomaly with mean 0 and standard deviation 1), and then apply that Z-score to the new posterior analysis mean and variance.
 
-when individual ensemble members are moved fro
+In our Multinomial filter it is important to generalize this concept of ensemble adjustment to both discretely move ensemble members from one category to another, and then to preserve the covariances among state variables, and with drivers and parameters, when updating the discrete categorical assignments of individual ensemble members. To reassign forecasted ensemble members to new disturbance classes we first identify the "sink" categories that increased in probability between the prior, $p_{k,t}$, and the posterior, $\bar{\rho}_{k,t}$.
 
-*reassignment of classes*
+$$\delta p_{k,t} = max\{0,\bar{\rho}_{k,t}-p_{k,t} \}$$
 
-To reassign forecasted ensemble members to new disturbance classes we first identify those that decreased between the prior probability, $p_k$, and the posterior frequency, $\bar{\rho}_k$.
+For "source" ensemble members that belong to categories that decreased in relative abundance, the excess is reassigned to new classes according to a Multinomial draw.
 
-$$\delta p_k = max\{0,\bar{\rho}_k-p_k \}$$
+$$c_{A|k} = Multinomial\left( n_k, {\vec{\delta p_t}}\over{\sum \vec{\delta p_t}}  \right)$$ 
 
-Classes that decreased in relative abundance are reassigned to new classes according to a Multinomial draw
+Conditional on this reassignment, the continuous states are updated according to [@Anderson2001] using the posterior statistics for that $X^L_{k,t}$. It is also worth noting that some cases of class reassignment may also require keeping track of categorical switches in Plant Functional Type (PFT), such as a transition from forest to agriculture, which implies a large jump in PFT parameters as well. One could apply the same [@Anderson2001] style adjustment to PFT parameters, but for simplicity here we just maintained alternative parameter ensembles for each PFT.
 
-$$c_{A|k} = Multinomial\left( n_k, {{\delta p}\over{\sum \delta p}}  \right)$$ 
+## Simulated data experiments
+
+To test our algorithm we applied it to a series of increasingly complex simulated data experiments where we know the "true" state of the system, including the timing and category of disturbance events. The first of these is the logistic LAI model described previously in the EnKF section (single pool, single site, single disturbance. 
+
+```{r pseudoTable,echo=FALSE}
+## table summarizing simulated data experiments
+exps = data.frame(exp=1:5,
+                  pools= c(1,3,3,3,3),
+                  disturbances = c(1,1,2,2,1),
+                  PFTs = c(1,1,1,2,1),
+                  sites = c(1,1,1,1,2)
+                  )
+knitr::kable(exps,caption="Simulated data experiments")
+```
+
+
+For the second experiment, we used the VSEM to extend the Multinomial assimilation model to a single site, single disturbance example with multiple pools. In this and the following simulated data experiments we used VSEM's default parameters, drawing ensemble members from Normal distributions centered on the prior mean and assuming a standard deviation that was 1/10th the default uniform prior range. The goal here was not to replicate any specific system, but to provide an amount of parameter uncertainty that was realistic but not so large as to generate trivial ensemble forecasts. Model runs were for 25 years using VSEM's default simulated PAR as the driver and with data assimilation occurring annually. Model initial conditions were generated by an initial 25 year ensemble spin-up prior to the 25 year experiment. Process error was added to the simulation annually assuming a zero-bound tobit distribution with a process error covariance matrix that was diagonal with variances of 0.1 for all pools. Ensemble members experienced disturbance stochastically with a 5% annual probability. For the disturbance itself, the post-disturbance leaf and wood carbon were drawn from a tobit with a mean of 1 for both pools, standard deviations of 0.15 and 0.25 respectively, and 25% of the biomass lost was assumed to enter the soil C pool, with the remainder removed (which could be thought of as either atmospheric emissions or biomass harvest depending on the disturbance type). 
+
+Pseudodata for assimilation was generated by selecting the parameters and initial conditions from one ensemble member at random and running a forward simulation with an imposed disturbance event in year 10. Observation error was then randomly added to the model's predictions using a tobit distribution with the same known observation error matrix, R, as used in the assimilation, which was a diagonal covariance matrix with variances of 0.25, 10, and 1 for leaf, soil, and wood respectively. Within the assimilation the prior on the disturbance rate was 5%.
+
+Our third experiment was similar to the second but introduced a second disturbance type (single-site, multi-disturbance, multi-pool) ....
+
+Our forth experiment extended the single-site, multi-disturbance, multi-pool scenario to one where one disturbance type included a switch in PFT....
+
+Our fifth and final experiment extended the analysis to a two-site scenario with spatial covariance across sites and pools, but with a disturbance occurring in one site but not at the other. To keep things simpler, this experiment reverted to a single disturbance type. This scenario was designed to test a concern we had in previous research that a disturbance occurring at one site could cause the biomass to decline at other undisturbed sites because of the cross-site covariances [CITE Viskari, Hamze]....
 
 
 
-## Simulated data experiments (known disturbance)
-
-  + x Single Site, Single Disturbance (SSSD)
-      vs. EnKF with and without Disturbance
-  + x SSSD Multi Pool (VSEM)
   + x SS Multi-Disturbance - distinct
   + x SS Multi-Disturbance w/ distinct, PFT switching
       * mention parallel PFT ensembles
