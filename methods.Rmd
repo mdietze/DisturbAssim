@@ -99,52 +99,20 @@ Our third experiment was similar to the second but introduced a second disturban
 Our forth experiment was similar to the third, but extended the single-site, multi-disturbance, multi-pool scenario to one where one disturbance type included a switch in PFT. Specifically PFT 2 was identical to the VSEM default, but PFT 1 was parameterized with a stem residence time that was increased by 10x to create a more tree-like PFT. In addition, we established a transition matrix where disturbance 1 (stand clearing) transitions from PFT1 to PFT2, while disturbance 2 (defoliation) keeps the current PFT is. As with the previous scenario, the prescribed disturbance in the pseudodata was type 1 (stand clearing, transition from forest to shrub).
 
 Our fifth and final experiment extended the analysis to a two-site scenario with spatial covariance across sites and pools, but with a disturbance occurring in one site but not at the other. To keep things simpler, this experiment reverted to a single disturbance type, same as experiment 2, except we dropped the disturbance probability to 2.5%. This scenario was designed to test a concern we had in previous research that a disturbance occurring at one site could cause the biomass to decline at other undisturbed sites because of the cross-site covariances [CITE Viskari, Hamze].
-
-
-
-  + x SS Multi-Disturbance - distinct
-  + x SS Multi-Disturbance w/ distinct, PFT switching
-      * mention parallel PFT ensembles
-      * need to protect against long-term PFT leakage; related to more general need to "look back"
-  + x Simple Multi-site: spatial cov
-  + Future
-      * SSMD - initially overlapping but diverge
-        * how to handle updating of assignment based on new information?
-      * SSMD - transition probabilities change with state
-        * rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
      
-## Real-world examples
+## Remotely-sensed disturbance in Oregon
 
-Extract some example time series for single pixels (e.g. AGB product) where the disturbance (2004) it is far enough in the past that there’s an interesting recovery trajectory but also where it’s not so early (so that the data assimilation has time to come into steady-state before the disturbance).
+Having tested the Multinomial assimilation against simulated data we next applied the algorithm to multiple remotely-sensed disturbance types for an evergreen forested region in the central Oregon Cascades. In summary, we: (1) calibrated VSEM against field data, then (2) used a remotely-sensed disturbance product to construct priors for disturbance rates and PFT transition, then (3) extracted and assimilated ~400 time-series of remotely sensed aboveground biomass, stratified by different disturbance types. We then assessed the ability of the algorithm to detect different disturbances types and magnitudes. 
 
 ### Study region and data sources
 
-    + Landtrendr
-    http://emapr.ceoas.oregonstate.edu/pages/data/viz/index.html
-    + Location:
-    tile h03v04
-xmin       : -2115585 
-xmax       : -1965585 
-ymin       : 2564805 
-ymax       : 2714805 
-Upper Left  (-2115585.000, 2714805.000) (123d 6'32.29"W, 44d41'17.09"N)
-Lower Left  (-2115585.000, 2564805.000) (122d35' 7.51"W, 43d23'46.18"N)
-Upper Right (-1965585.000, 2714805.000) (121d16'45.91"W, 45d 3'17.45"N)
-Lower Right (-1965585.000, 2564805.000) (120d47'15.95"W, 43d45'18.18"N)
-Center      (-2040585.000, 2639805.000) (121d56'25.42"W, 44d13'35.07"N)
-> res(cover)
-[1] 30 30
-> crs(cover)
-CRS arguments:
- +proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83
-+units=m +no_defs 
-    + Biomass [@Kennedy2018]
-      1990-2017
-    + Cover
-      1990-2017
-    + Disturbance
-      1984-2011
-      - nearest neighbor resampled to same as cover
+Our study region was a Landsat tile located between 120 47'W and 123 7'W longitude and 43 45'N and 45 '4'N latitude. For this tile we extracted data from three derived Landtrendr datasets (http://emapr.ceoas.oregonstate.edu/pages/data/viz/index.html, tile h03v04):  biomass, cover, and disturbance. All three products were 30m resolution and annual timestep;biomass and cover extended from 1990-2017, while disturbance extended from 1984-2011 and a nearest neighbor algorithm was used to regrid the disturbance data to be the same as biomass and cover. The biomass product ... [@Kennedy2018]. The cover product ... [CITE]. To similify the analysis we focused on a single vegetation type, evergreen forest, which is the dominant vegetation cover in the region and consists primarily of ponderosa pine. The disturbance product ... [CITE]. To simplify analyses we aggregated the disturbance product into five classes: undisturbed, cut, fire, pest, and other.
+
+```{r map, echo=FALSE}
+## maps of pre-disturbance biomass, cover, and 2004 disturbance
+
+```
+
 
  + Applications: PNW
     + Logging
@@ -161,16 +129,19 @@ CRS arguments:
 
 ### Calibration of VSEM
 
+VSEM was calibrated primarily using data from 2002-2019 from the Ameriflux site US-ME2 (lat.lon), a mature Ponderosa pine stand. VSEM pools (leaf, stem, and soil C) were initialized using the earliest available site-specific data from the Ameriflux BADM (Biomass, Ancillary, Disturbance, Management) dataset.
+
 [@BayesianTools]
 
 * Calibrate at US-Me2, 2002-2019 
-* Initialize with BADM soil, leaf, and stem C
 * Priors (and some fixed parameters) using BADM; default uniform for rest
 * Likelihood against tower _annual_ NEE and BADM leaf and stem biomass
 * MCMC using DEzs algorithm for 25000 iterations of 2 chains
 * GBR, effective sample
 
 ### Comparison to real-world data
+
+Extract some example time series for single pixels (e.g. AGB product) where the disturbance (2004) it is far enough in the past that there’s an interesting recovery trajectory but also where it’s not so early (so that the data assimilation has time to come into steady-state before the disturbance).
 
 * Selected conifer forest land cover type
 * Sampled ~100 points from each disturbance type for 2004

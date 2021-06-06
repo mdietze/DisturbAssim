@@ -40,3 +40,16 @@
 * Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
 * Approximation of not simulating disturbed ensemble members and relying SOLEY on ensemble adjustment
 * Analytical approximation of sequential beta-binomial then KF vs full joint model
+
+Leftover text from Methods:
+  + x SS Multi-Disturbance - distinct
+  + x SS Multi-Disturbance w/ distinct, PFT switching
+      * mention parallel PFT ensembles
+      * need to protect against long-term PFT leakage; related to more general need to "look back"
+  + x Simple Multi-site: spatial cov
+  + Future
+      * SSMD - initially overlapping but diverge
+        * how to handle updating of assignment based on new information?
+      * SSMD - transition probabilities change with state
+        * rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
+
