@@ -135,7 +135,7 @@ THETAK <- THETA
 d.prior = matrix(nrow=ne,ncol=2)
 muf <- matrix(NA,3*nsite,4)
 pf  <- array(0,c(3*nsite,3*nsite,4)) ## 3rd variable is class
-for(t in 1:10){
+for(t in 1:NT){
   
   tsel <- (t-1)*365 + 1:365               ## Select days from driver files
   
@@ -155,24 +155,24 @@ for(t in 1:10){
   }
   
   ## Disturbance
-  for(i in 1:ne) d.prior[i,] <- rcbern(rep(p.dist,2),rho=0.5)   ## prior on disturbance status
+  for(i in 1:ne) d.prior[i,] <- rcbern(rep(p.dist,2),rho=0.5,mu=1:2)   ## prior on disturbance status
   d.class <- d.prior[,1] + 2*d.prior[,2]
   for(d in 2:4){  ## loop over disturbance classes
     sel.dist <- which(d.class == d-1)              ## select disturbed ensemble members
     if(length(sel.dist)> (3*nsite)){
       for(j in sel.dist){                      ## run disturbance model
         switch (as.character(d),
-            "2" = {Nf[j,,1] = disturbance(Nf[j,,1])
-                   NfK[j,,1]= disturbance(NfK[j,,1])
-                  },
-            "3" = {Nf[j,,2] = disturbance(Nf[j,,2])
-                   NfK[j,,2]= disturbance(NfK[j,,2])
-                  },
-            "4" = {Nf[j,,1] = disturbance(Nf[j,,1])
-                   Nf[j,,2] = disturbance(Nf[j,,2])
-                   NfK[j,,1]= disturbance(NfK[j,,1])
-                   NfK[j,,2]= disturbance(NfK[j,,2])
-                  }
+                "2" = {Nf[j,,1] = disturbance(Nf[j,,1])
+                NfK[j,,1]= disturbance(NfK[j,,1])
+                },
+                "3" = {Nf[j,,2] = disturbance(Nf[j,,2])
+                NfK[j,,2]= disturbance(NfK[j,,2])
+                },
+                "4" = {Nf[j,,1] = disturbance(Nf[j,,1])
+                Nf[j,,2] = disturbance(Nf[j,,2])
+                NfK[j,,1]= disturbance(NfK[j,,1])
+                NfK[j,,2]= disturbance(NfK[j,,2])
+                }
         )
       }
       muf[,d]  = apply(Nf[sel.dist,,],3,colMeans)
@@ -190,15 +190,16 @@ for(t in 1:10){
   muf[,1] = apply(Nf[sel.dist,,],3,colMeans)
   pf[,,1] = solve(var(cbind(Nf[sel.dist,,1],Nf[sel.dist,,2])))
   Nf <- tobit(Nf)
-
+  
   ## EnKF forecast stats
-  NfK <- tobit(NfK)
-  NK = cbind(NfK[,,1],NfK[,,2])
-  mufK = colMeans(NK)
-  PfK  = var(NK)
-  pfK  = solve(PfK)             ## Not disturbed forecast precision
-  Forecast.KD[[t]] <- list(d.prior=d.prior,Nf=NfK,muf=mufK,pf=pfK)
-
+  if(FALSE){
+    NfK <- tobit(NfK)
+    NK = cbind(NfK[,,1],NfK[,,2])
+    mufK = colMeans(NK)
+    PfK  = var(NK)
+    pfK  = solve(PfK)             ## Not disturbed forecast precision
+    Forecast.KD[[t]] <- list(d.prior=d.prior,Nf=NfK,muf=mufK,pf=pfK)
+  }
   ## priors
   priors <- list(N = 4,  ## 2 sites x 2 disturbance classes
                  p   = table(d.class)/ne,         ## disturbance rate
@@ -207,57 +208,80 @@ for(t in 1:10){
   )
   Forecast[[t]] <- c(list(d.prior=d.prior,Nf=Nf),priors)
   
+  ## initial conditions: disturbance likelihood
+  Lp = NA
+  for(i in 1:4){ Lp[i] = mvtnorm::dmvnorm(No[t,],muf[,i],pf[,,i])}
+  rho.IC = rep(0,4); rho.IC[which.max(Lp)] = 1; rho.IC[1] = NA
+  
   ## Analysis
   update = c(list(Y=No[t,],R=solve(R)),priors)
   mod <- rjags::jags.model(file=textConnection(Analysis2SMDMP),
                            data=update,
+                           inits = list(rho=rho.IC),
                            n.adapt=1000,n.chains=3)
-  jdat <- rjags::coda.samples(mod,variable.names="X",n.iter=2000) ## burn-in 
+  jdat <- rjags::coda.samples(mod,variable.names="rho",n.iter=2000) ## burn-in 
   jdat <- rjags::coda.samples(mod,variable.names=c("X","rho","x"),n.iter=10000) 
-
+  
   ## update parameters & save Analysis posterior
   dat = as.matrix(jdat)
   Xsel <- grep(pattern="^X",x=colnames(dat))
-
+  
   ## draw new IC
   d.post <- dat[,grep(pattern="rho",x=colnames(dat))]
   d.class.post <- apply(d.post,1,which.max)
   Na <- multi.ens.adj(
-          Xf   = cbind(Nf[,,1],Nf[,,2]),
-          cf   = d.class+1,
-          mu.f = t(priors$muf),
-          Pf   = abind::abind(    ## find a way to do this with apply(priors$pf,3,solve)
-                    solve(priors$pf[,,1]),
-                    solve(priors$pf[,,2]),
-                    solve(priors$pf[,,3]),
-                    solve(priors$pf[,,4]),
-                 along=3),
-          Xa = dat[,Xsel],
-          ca = d.class.post)
+    Xf   = cbind(Nf[,,1],Nf[,,2]),
+    cf   = d.class+1,
+    mu.f = t(priors$muf),
+    Pf   = abind::abind(    ## find a way to do this with apply(priors$pf,3,solve)
+      solve(priors$pf[,,1]),
+      solve(priors$pf[,,2]),
+      solve(priors$pf[,,3]),
+      solve(priors$pf[,,4]),
+      along=3),
+    Xa = dat[,Xsel],
+    ca = d.class.post)
   Ca <- Na[,1] ## updated class assignments
   Na <- tobit(Na[,-1])
-#  sel.ic <- sample.int(nrow(dat), ne, replace=TRUE)
-#  Na <- dat[sel.ic,nsel]
+  #  sel.ic <- sample.int(nrow(dat), ne, replace=TRUE)
+  #  Na <- dat[sel.ic,nsel]
   Analysis[[t]] <- list(MCMC=dat,
                         Na = Na,
                         Ca = Ca)
   Na <- abind::abind(Na[,1:3],Na[,4:6],along = 3)
-
-   
+  
+  
   ## EnKF Analysis
-  I = H <- diag(rep(1,3*nsite))
-  K <- PfK %*% t(H) %*% solve(H%*%PfK%*%t(H) + R)
-  muaK <- mufK + K%*%(No[t,] - mufK) 
-  PaK <- (I-K %*% H)%*%PfK    
-  paK = solve(PaK)
-  NaK <- PEcAn.assim.sequential::adj.ens(Pf = PfK,X = NK,mu.f = mufK,mu.a = muaK,Pa = PaK) %>% as.matrix()
-  Analysis.KD[[t]] <- list(mua=muaK,pa=paK,Pa=PaK,Na=NaK)
-  NaK <- abind::abind(NaK[,1:3],NaK[,4:6],along = 3)  
+  if(FALSE){
+    I = H <- diag(rep(1,3*nsite))
+    K <- PfK %*% t(H) %*% solve(H%*%PfK%*%t(H) + R)
+    muaK <- mufK + K%*%(No[t,] - mufK) 
+    PaK <- (I-K %*% H)%*%PfK    
+    paK = solve(PaK)
+    NaK <- PEcAn.assim.sequential::adj.ens(Pf = PfK,X = NK,mu.f = mufK,mu.a = muaK,Pa = PaK) %>% as.matrix()
+    Analysis.KD[[t]] <- list(mua=muaK,pa=paK,Pa=PaK,Na=NaK)
+    NaK <- abind::abind(NaK[,1:3],NaK[,4:6],along = 3)
+  }
   
 }
 
 ```
 
+```{r}
+save(Forecast,Analysis,No,Ntrue,R,file="exp5.RData")
+Forecast10 = Forecast[[10]]
+Analysis10 = Analysis[[10]]
+CI.Na = list()
+for(i in c(3,6)){
+  CI.Na[[i]] = sapply(X = Analysis,function(y){
+    x = y$MCMC
+    sel.n = which(colnames(x) == paste0("X[",i,"]"))
+    quantile(x[,sel.n],c(0.025,0.5,0.975))
+  })
+}
+save(Forecast10,Analysis10,CI.Na,No,Ntrue,R,file="exp5trim.RData")
+
+```
 
 ### time series
 

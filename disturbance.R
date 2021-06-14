@@ -53,7 +53,7 @@ disturbance2 <- function(x,type){ ## x = Bleaf, Bsoil, Bstem
 }
 
 # random correlated bernouli
-rcbern <- function(p,rho){
+rcbern <- function(p,rho,mu){
   
   ## calculate cov
   D = as.matrix(dist(seq_along(mu),diag = TRUE,upper = TRUE))
