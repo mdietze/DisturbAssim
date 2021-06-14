@@ -74,7 +74,7 @@ multi.ens.adj<-function(Xf, cf, mu.f, Pf, Xa, ca){
   
   Z <- Xf*0
   
-  for(k in seq_along(uc)){
+  for(k in seq_along(uc)){   ## loop over disturbance classes
     sel.c = which(cf == uc[k])
     
     ## SVD of forecast covariances
@@ -105,15 +105,15 @@ multi.ens.adj<-function(Xf, cf, mu.f, Pf, Xa, ca){
     if(length(sel.c) == 0) next
     
     ## analysis (by class)
-    mu.a <- colMeans(Xa[ca == uc[k],])
-    Pa   <- cov(Xa[ca == uc[k],]) ## calculate analysis cov for each class
+    mu.a <- colMeans(Xa[sel.c,])
+    Pa   <- cov(Xa[sel.c,]) ## calculate analysis cov for each class
     S_a  <- svd(Pa)
     L_a  <- S_a$d
     V_a  <- S_a$v
   
     ## analysis ensemble 
     for(i in sel.c){
-      # she decomposed Pa - then it's putting it back together but with a different Z which comes from the likelihood of that ens    
+      # we decomposed Pa - then it's putting it back together but with a different Z which comes from the likelihood of that ens    
       X_a[i,] <- V_a %*%diag(sqrt(L_a))%*%Z[i,] + mu.a
     }
     

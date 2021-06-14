@@ -31,6 +31,20 @@ res(cover)
 crs(cover)
 image(cover)
 
+## extract year for paper figure and recode to NLCD
+cov04 = covS[[which(ctime==2004)]]
+cov04 = ratify(cov04)
+rat <- levels(cov04)[[1]]
+nlcd <- FedData::pal_nlcd()
+colnames(nlcd)[2] <- "ID"
+nlcd$ID = as.numeric(nlcd$ID)
+rat = dplyr::left_join(rat,nlcd,by="ID")
+levels(cov04) <- rat 
+cov04 = deratify(cov04,"description")
+cov04 <- raster::projectRaster(cov04,crs=crs("+proj=longlat +datum=WGS84"))
+raster::writeRaster(cov04,"cov04.tif",format="GTiff",overwrite=TRUE)
+save(rat,file="rat.RData")
+
 # disturbance
 dis.processed = "dis.h03v04.RData"
 if(file.exists(dis.processed)){
@@ -64,6 +78,13 @@ bioS = stack("conus_biomass_ARD_tile_h03v04/conus_biomass_ARD_tile_h03v04.tif")
 #res(biomass)
 nlayers(bioS)
 #summary(biomass)
+
+
+bio04 = bioS[[which(ctime==2004)]]
+raster::writeRaster(bio04,"bio04.tif",format="GTiff",overwrite=TRUE)
+
+raster::plot(bio04,col=c('#ffffff','#edf8fb','#ccece6','#99d8c9','#66c2a4','#2ca25f','#006d2c'),asp=1,main="Biomass")
+
 ```
 
 ## estimate cover frequencies, select those of interest
@@ -174,6 +195,7 @@ rcl = matrix(
 
 disR = raster::subs(disS,as.data.frame(rcl))
 save(disR,file=dis.processed)
+raster::writeRaster(disR,"dis.processed.tif",format="GTiff",overwrite=TRUE)
 
 if(FALSE){
 disS[disS==1]   = 0   # Undisturbed
@@ -239,6 +261,19 @@ for(i in seq_along(dclass)){
   dis.resamp = "disR.resamp.RData"
   save(disR,fdS,file=dis.resamp)
 
+## save year for figure
+dis04 = disR[[which(dtime==2004)]]
+#dis04 = ratify(dis04)
+#drat <- levels(dis04)[[1]]
+#drat$class <- c("Intact","Other","Cut","Fire","Pest")
+#levels(dis04) <- drat 
+#dis04 = deratify(dis04,"class")
+#dis04 <- raster::projectRaster(dis04,crs=crs("+proj=longlat +datum=WGS84"))
+raster::writeRaster(dis04,"dis04.tif",format="GTiff",overwrite=TRUE)
+
+dname = c("Intact","Other","Cut","Fire","Pest")
+raster::plot(dis04,col=c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a'),axis.args=list(at=seq(3,48,length=5),labels=dname,cex.axis=0.4),asp=1,main="Disturbance") #"#a6cee3" '#33a02c'
+  
 ```
 
 
