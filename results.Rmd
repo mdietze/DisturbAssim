@@ -77,6 +77,7 @@ Figure showing PFT switching vs not, ability to detect disturbance type
 Figure showing "dragging down" of neighbors in conventional and breaking of COV in Multinomial
 
 ```{r, echo=FALSE,fig.cap="Simulated experiments 3-5: Left hand column shows timeseries for the wood pool for all three experiments; Right hand shows bivariate ensemble adjustment at time of disturbance"}
+
 ## figure with 3 rows, 2 col showing timeseries in rt and bivariate in left
 
 ########experiment 3 - two disturb
@@ -212,6 +213,7 @@ legend("topleft",
 
 
 ## Remotely-sensed disturbance in Oregon
+
 
 
 
