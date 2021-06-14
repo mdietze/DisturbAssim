@@ -244,6 +244,9 @@ for(t in 1:NT){
 
 ```
 
+```{r}
+save(Forecast,Analysis,No,Ntrue,R,file="exp3.RData")
+```
 
 ### time series
 

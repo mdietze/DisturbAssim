@@ -17,6 +17,7 @@
 * Discussion of similar approaches
 [@Ye2020]
 
+* Calibration was "quick and dirty" because the focus was on disturbance detection not default dynamics. For actual carbon monitoring and forecasting we would recommend a more extensive multi-site Bayesian calibration so that parameter uncertainty can be propagated [CITE istem 2018, dietze 2017], preferably employing hierarchical approaches to also capture parameter heterogeneity [CITE istem 2021]. Similarly, would recommend a more robust estimation and propagation of process error as part of the data assimilation approach itself [CITE raiho].
 
 * Implications  (borrow text from CMS proposals)
   * Improving MRV

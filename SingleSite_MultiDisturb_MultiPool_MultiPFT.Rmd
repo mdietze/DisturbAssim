@@ -198,10 +198,16 @@ for(t in 1:NT){
   )
   Forecast[[t]] <- c(list(d.prior=d.prior,Nf=Nf,pft=pft.f),priors)
   
+  ## initial conditions: disturbance likelihood
+  Lp = NA
+  for(i in 1:3){ Lp[i] = mvtnorm::dmvnorm(No[t,],muf[,i],pf[,,i])}
+  rho.IC = rep(0,3); rho.IC[which.max(Lp)] = 1; rho.IC[1] = NA
+  
   ## Analysis
   update = c(list(Y=No[t,],R=solve(R),N=3),priors)
   mod <- rjags::jags.model(file=textConnection(AnalysisSSMDMP),
                            data=update,
+                           inits = list(rho=rho.IC),
                            n.adapt=1000,n.chains=3)
   jdat <- rjags::coda.samples(mod,variable.names="X",n.iter=2000) ## burn-in 
   jdat <- rjags::coda.samples(mod,variable.names=c("X","rho","x"),n.iter=10000) 
@@ -238,6 +244,9 @@ for(t in 1:NT){
 
 ```
 
+```{r}
+save(Forecast,Analysis,No,Ntrue,R,file="exp4.RData")
+```
 
 ### time series
 
