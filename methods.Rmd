@@ -17,7 +17,7 @@ $$\mu_{a,t} =  P_{a,t}^{-1}\left( H_t^T R^{-1} Y_{t} + P_{f,t}^{-1} \mu_{f,t} \r
 
 The subscript $a$ is used to refer to the Analysis posterior and distinguish this from the prior forecast $f$ mean and covariance for the same timestep. While the matrix notation in these equations can make these solutions look complicated, the underlying meaning is accessible. First, the precision of the analysis (i.e. 1/variance) is the sum of the observation precision and the forecast precision, meaning that the analysis is always more precise than the data or forecast alone. Second, the mean of the analysis is a weighted average between the data, $Y_t$ and the forecast $mu_{f,t}$, each weighted by their precision. This averaging can also be viewed as a 'nudge', pushing the forecast toward the new data, with the magnitude of that nudge determined by the uncertainties in both the forecast and data (i.e. highly precise data = big nudge, highly uncertain data = very small nudge).
 
-While this fusion of forecast and new data is an incredibly powerful concept, as alluded to in the _Introduction_ there are times that the Kalman Normal-Normal "nudge" produces results that don't always make sense. Consider as a simple example a simulated data experiment where LAI growth follows a simple stochastic logistic model with growth rate $r$=0.1, equilibrium $K$=6, process error standard deviation 0.25, and observation error standard deviation 0.75. Under normal conditions, EnKF would have no trouble nudging a LAI forecast back on track every time a new observation is made, but what if a discrete disturbance event occurs knocking LAI from steady-state down to $1.0 \pm 0.5$? In this case the compromise between the forecast ($LAI=6$) and observations ($LAI=1$) produces a compromise ($LAI \approx 5$ that is a poor representation of the state of the system (Figure \@ref(fig:enkf)). Furthermore, as the true LAI slowly recovers upward, the EnKF keeps gradually nudging LAI downward until the two converge. Not only is the assimilated state wrong, but so is our estimate of the process -- a discrete disturbance and rapid recovery is behaving like gradual degradation, which will lead to incorrect inferences about related processes (litter, soil C, NPP, NEE, ET, albedo, etc.). Not also that including a disturbance probability in the process model does not solve this problem. Assuming the disturbance probability is low (e.g. a background rates of <1%), at every point in time the forecast would include a small number of disturbed ensemble members, but the overwhelming majority would be undisturbed. Therefore $\mu_{f,t}$ will be relatively unchanged and $P_{f,t}$ would see a small increase in variance. The fundamental problem is that even though the true forecast is now bimodal (a large peak at the undisturbed state and a much smaller peak at the disturbed state), the EnKF is still representing this as a unimodal Normal. Indeed, if the you increased the disturbance probability substantially (e.g. 50%), the EnKF would treat this as a unimodal forecast half way between the disturbed and undisturbed states, a place where no ensemble members are present.
+While this fusion of forecast and new data is an incredibly powerful concept, as alluded to in the _Introduction_ there are times that the Kalman Normal-Normal "nudge" produces results that don't always make sense. Consider as a simple example a simulated data experiment where LAI growth follows a simple stochastic logistic model with growth rate $r$=0.1, equilibrium $K$=6, process error standard deviation 0.25, and observation error standard deviation 0.75. Under normal conditions, EnKF would have no trouble nudging a LAI forecast back on track every time a new observation is made, but what if a discrete disturbance event occurs knocking LAI from steady-state down to $1.0 \pm 0.5$? In this case the compromise between the forecast ($LAI=6$) and observations ($LAI=1$) produces a compromise ($LAI \approx 5$ that is a poor representation of the state of the system (Figure \@ref(fig:enkf)). Furthermore, as the true LAI slowly recovers upward, the EnKF keeps gradually nudging LAI downward until the two converge. Not only is the assimilated state wrong, but so is our estimate of the process -- a discrete disturbance and rapid recovery is behaving like gradual degradation, which will lead to incorrect inferences about related processes (litter, soil C, NPP, NEE, ET, albedo, etc.). Not also that including a disturbance probability in the process model does not solve this problem. Assuming the disturbance probability is low (e.g. a background rates of <1%), at every point in time the forecast would include a small number of disturbed ensemble members, but the overwhelming majority would be undisturbed. Therefore $\mu_{f,t}$ will be relatively unchanged and $P_{f,t}$ would see a small increase in variance. The fundamental problem is that even though the true forecast is now bimodal (a large peak at the undisturbed state and a much smaller peak at the disturbed state), the EnKF is still representing this as a unimodal Normal. Indeed, if the you increased the disturbance probability substantially (e.g. 50%), the EnKF would treat this as a unimodal forecast half way between the disturbed and undisturbed states, a place where no ensemble members are present (Figure \@ref(fig:concept), top).
 
 ```{r enkf, echo=FALSE, fig.cap="Example assimilation of a disturbance event shows that conventional assimilation approaches, such as EnKF, take time to converge to new states after disturbance (orange). By modeling the probability of disturbance (black) our Multinomial assimilation (blue) can correctly jump between states during disturbance events (e.g. P(disturbance) = 0.977 at time 10) while remaining resilient to potential false-positive events (e.g. time 12 and 15)."}
 SSSD_figure <- function(){
@@ -35,6 +35,73 @@ SSSD_figure <- function(){
        lwd=5,col=c("orange","blue","red","black")) ##"#b2df8a"
 }
 SSSD_figure()
+```
+
+```{r concept, echo=FALSE, fig.cap="Top: In a conventional EnKF, a multimodal forecast (grey histogram) is approximated by a unimodal Normal (green), such that when a low probability disturbance is actually observed (red) the posterior (orange) does not capture this event. Bottom: In the multinomial filter the same multimodal forecast is represented by a mixture of normals (green and dark red) each weighted by their prior (forecast) probabulities. The posterior (blue), updates the mean and variance of each mode as well as their relative probabilities, in this case capturing the high probability that a disturbance occurred."}
+## params
+set.seed(1066)
+p.dist = 0.05
+n0 = 1
+nIC = 6
+r = .1
+K = 6
+n.sd = 0.25
+NE = 1000
+obs=1
+obs.sd = 0.75
+
+
+## generate IC ensemble
+ens = rnorm(NE,nIC,n.sd)
+  
+## Forecast step
+LAI = ens + r*ens*(1-ens/K) + rnorm(NE,0,n.sd) 
+disturbed = as.logical(rbinom(NE,1,p.dist))
+LAI[disturbed] = abs(rnorm(sum(disturbed),n0,0.5)) ## disturbance
+
+##Approximate forecast with Normal
+xseq = seq(0,8,length=1000)
+muf = mean(LAI)
+Pf = var(LAI)
+
+## analysis step: combine previous forecast with observed data
+H <- matrix(1,ncol=1)
+K <- Pf * t(H) %*% solve(H%*%Pf%*%t(H) + obs.sd^2)
+mua <- muf + K*(obs - muf) 
+Pa <- (1-K %*% H)*Pf    
+
+## EnKF
+hist(LAI, probability = TRUE, main = "Conventional EnKF")#,ylim=c(0,dnorm(mua,mua,sqrt(Pa))))
+lines(xseq,dnorm(xseq,muf,sqrt(Pf)),col="#b2df8a",lwd=3)
+lines(xseq,dnorm(xseq,obs,obs.sd),col='red',lwd=3)
+lines(xseq,dnorm(xseq,mua,sqrt(Pa)),col='orange',lwd=3)
+legend("topleft",legend=c("forecast","data","assimilation"),lwd=3,col=c("#b2df8a","red","orange"))
+
+## Forecast: Mixture of normals
+mu1 = mean(LAI[!disturbed])
+P1 = var(LAI[!disturbed])
+mu2 = mean(LAI[disturbed])
+P2 = var(LAI[disturbed])
+
+## assimilation
+priors <- list(p = p.dist,
+                 mufN = mu1,
+                 mufD = mu2,
+                 pfN  = 1/P1,
+                 pfD  = 1/P2,
+                 Y = obs,
+                 r = 1/obs.sd^2
+                 )
+mod <- jags.model(file=textConnection(AnalysisSSSD),
+                   data=priors,n.adapt=1000,n.chains=3)
+jdat <- coda.samples(mod,variable.names=c("n"),n.iter=10000) 
+
+hist(LAI,probability = TRUE,ylim=c(0,dnorm(mu1,mu1,sqrt(P1))), main="Multinomial Filter")
+lines(xseq,(1-p.dist)*dnorm(xseq,mu1,sqrt(P1)),col="#b2df8a",lwd=3)
+lines(xseq,p.dist*dnorm(xseq,mu2,sqrt(P2)),col="brown",lwd=3)
+lines(xseq,dnorm(xseq,obs,obs.sd),col='red',lwd=3)
+lines(density(as.matrix(jdat)),col="blue",lwd=3)
+legend("top",legend=c("undisturbed","disturbed","data","assimilation"),lwd=3,col=c("#b2df8a","brown","red","blue"))
 ```
 
 ## Derivation of the Multinomial Filter
@@ -164,4 +231,12 @@ knitr::kable(QRexp,caption="Data Assimilation experiments")
 
   * Score: filter divergence, disturbance detection & skill
   * Regress vs: pre-disturbance biomass, size of disturbance (abs & rel), type, etc
+  
+Divergence
+
+As a metric to assess the prevalence of filter divergence, we calculated the difference between the last observed data point and the posterior mean of the corresponding Analysis, and then divided this by half the width of the Analysis 95% confidence interval. If the confidence interval is symmetric, then any Analysis mean that falls in the confidence interval will score between -1 and 1, while values outside this range are suggestive of filter divergence.
+
+
+    
+    
 

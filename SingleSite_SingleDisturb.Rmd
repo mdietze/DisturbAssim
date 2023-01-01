@@ -588,6 +588,82 @@ save(data,CI.fN,time,an0.stats,an.stats,NT,Dbar,xlim,col,file="SSSD.RData")
 
 ```
 
+## Conceptual Figure
+```{r, echo=FALSE}
+## params
+set.seed(1066)
+p.dist = 0.05
+n0 = 1
+nIC = 6
+r = .1
+K = 6
+n.sd = 0.25
+NE = 1000
+obs=1
+obs.sd = 0.75
+
+
+## generate IC ensemble
+ens = rnorm(NE,nIC,n.sd)
+  
+## Forecast step
+LAI = ens + r*ens*(1-ens/K) + rnorm(NE,0,n.sd) 
+disturbed = as.logical(rbinom(NE,1,p.dist))
+LAI[disturbed] = abs(rnorm(sum(disturbed),n0,0.5)) ## disturbance
+
+##Approximate forecast with Normal
+xseq = seq(0,8,length=1000)
+muf = mean(LAI)
+Pf = var(LAI)
+
+## analysis step: combine previous forecast with observed data
+H <- matrix(1,ncol=1)
+K <- Pf * t(H) %*% solve(H%*%Pf%*%t(H) + obs.sd^2)
+mua <- muf + K*(obs - muf) 
+Pa <- (1-K %*% H)*Pf    
+
+## EnKF
+hist(LAI,probability = TRUE)#,ylim=c(0,dnorm(mua,mua,sqrt(Pa))))
+lines(xseq,dnorm(xseq,muf,sqrt(Pf)),col="#b2df8a",lwd=3)
+lines(xseq,dnorm(xseq,obs,obs.sd),col='red',lwd=3)
+lines(xseq,dnorm(xseq,mua,sqrt(Pa)),col='orange',lwd=3)
+legend("topleft",legend=c("forecast","data","assimilation"),lwd=3,col=c("#b2df8a","red","orange"))
+
+## Forecast: Mixture of normals
+mu1 = mean(LAI[!disturbed])
+P1 = var(LAI[!disturbed])
+mu2 = mean(LAI[disturbed])
+P2 = var(LAI[disturbed])
+
+## assimilation
+priors <- list(p = p.dist,
+                 mufN = mu1,
+                 mufD = mu2,
+                 pfN  = 1/P1,
+                 pfD  = 1/P2,
+                 Y = obs,
+                 r = 1/obs.sd^2
+                 )
+mod <- jags.model(file=textConnection(AnalysisSSSD),
+                   data=priors,n.adapt=1000,n.chains=3)
+jdat <- coda.samples(mod,variable.names=c("n"),n.iter=10000) 
+
+hist(LAI,probability = TRUE,ylim=c(0,dnorm(mu1,mu1,sqrt(P1))))
+lines(xseq,(1-p.dist)*dnorm(xseq,mu1,sqrt(P1)),col="#b2df8a",lwd=3)
+lines(xseq,p.dist*dnorm(xseq,mu2,sqrt(P2)),col="brown",lwd=3)
+lines(xseq,dnorm(xseq,obs,obs.sd),col='red',lwd=3)
+lines(density(as.matrix(jdat)),col="blue",lwd=3)
+legend("top",legend=c("undisturbed","disturbed","data","assimilation"),lwd=3,col=c("#b2df8a","brown","red","blue"))
+
+#legend("top",legend=c("undisturbed","disturbed"),lwd=3,col=c("#b2df8a","brown"))
+
+
+
+```
+
+
+
+
 ## Todo
 -   Tweak model to have a simple C budget -- where does the C go when the model doesn't assimilate disturbance?
 -   Calibrate state and transition probabilities for a single region

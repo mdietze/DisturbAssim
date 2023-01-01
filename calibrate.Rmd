@@ -212,6 +212,12 @@ plot(pred[,"Cs"])
 lines(Cs.post)
 abline(h=SoilC/10)
 
+## calibration only
+Cw.post = tapply(post[,"CR"],years,mean)
+plot(year,Cw.post,ylab="AGB (kgC/m2)",type='l',lwd=3,
+     xlim=c(2002,2012),ylim=range(Cw,na.rm=TRUE))
+points(year,Cw,col=2,pch="+",cex=2)
+legend("topleft",legend=c("model","data"),pch=c(NA,"+"),lty=c(1,NA),col=1:2)
 
 ## Rough approximation of process error: RMSE on delta
 Ql <- sqrt(mean((diff(Cl)-diff(Cl.post))^2,na.rm=TRUE))
