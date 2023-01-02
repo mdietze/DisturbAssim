@@ -38,6 +38,7 @@ SSSD_figure()
 ```
 
 ```{r concept, echo=FALSE, fig.cap="Top: In a conventional EnKF, a multimodal forecast (grey histogram) is approximated by a unimodal Normal (green), such that when a low probability disturbance is actually observed (red) the posterior (orange) does not capture this event. Bottom: In the multinomial filter the same multimodal forecast is represented by a mixture of normals (green and dark red) each weighted by their prior (forecast) probabulities. The posterior (blue), updates the mean and variance of each mode as well as their relative probabilities, in this case capturing the high probability that a disturbance occurred."}
+library(rjags)
 ## params
 set.seed(1066)
 p.dist = 0.05
@@ -84,6 +85,16 @@ mu2 = mean(LAI[disturbed])
 P2 = var(LAI[disturbed])
 
 ## assimilation
+AnalysisSSSD <- "
+model{
+  ## prior
+  muN ~ dnorm(mufN,pfN)
+  muD ~ dnorm(mufD,pfD)
+  D ~ dbern(p)
+  ## Analysis
+  n <- D*muD + (1-D)*muN
+  Y ~ dnorm(n,r)
+}"
 priors <- list(p = p.dist,
                  mufN = mu1,
                  mufD = mu2,

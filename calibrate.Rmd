@@ -17,6 +17,7 @@ set.seed(42)
 ```{r}
 AF = read.csv("Metolius.csv",header=TRUE)
 
+bioS = stack("conus_biomass_ARD_tile_h03v04/conus_biomass_ARD_tile_h03v04.tif")
 AF.biomass = raster::extract(bioS,AF[,c("Lat.","Long.")])
 
 LAI.BADM = c(1.87, 1.96, 2.35, 2.37, 2.7, 2.8, 2.87, 3.01)
@@ -228,7 +229,13 @@ Qs <- sqrt(mean(diff(Cs.post))) ## assume 100% error (i.e. true delta Soil C = 1
 Ql/mean(diff(Cl),na.rm=TRUE)
 Qw/mean(diff(Cw),na.rm=TRUE)
 
-save(theta,Ql,Qw,Qs,file="fit.RData")
+## R2
+RMSE = sqrt(c(mean((Cl.post-Cl)^2,na.rm=TRUE),
+            mean((Cw.post-Cw)^2,na.rm=TRUE),
+            mean((NEEm-aNEE)^2,na.rm=TRUE)))
+1-RMSE^2/c(var(Cl,na.rm = TRUE),var(Cw,na.rm = TRUE),var(aNEE))
+
+save(theta,Ql,Qw,Qs,NEEm,aNEE,year,Cl,Cl.post,Cw,Cw.post,mle,file="fit.RData")
 ```
 
 

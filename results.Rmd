@@ -208,6 +208,35 @@ legend("topleft",
 
 ## VSEM Calibration
 
+Prior to applying the VSEM to simulate the conifer forest carbon cycle in Oregon the model was calibrated against AGB, leaf C, and NEE data from Ameriflux site US-ME2.  Best fit parameters are given in Supplemental Table \@ref(tab:parameters)
+
+RMSE
+
+The closest fit to the observed data was for woody biomass, which had a RMSE of 0.08947263 $kgC/m^2$ and a $R^2$ of 0.9772768 (Supplemental figure \@ref(fig:calibrate))
+
+RMSE
+> RMSE
+[1] 0.06703855 0.08947263 0.61244709
+
+Process error was approximated as...
+> Ql
+[1] 0.01040558
+> Qw
+[1] 0.03424142
+> Qs
+[1] 0.1499524
+
+## Cv of Q
+> Ql/mean(diff(Cl),na.rm=TRUE)
+[1] 1.137623
+> Qw/mean(diff(Cw),na.rm=TRUE)
+[1] 0.1658704
+
+Systematic bias in leaf C (model is ~2x too productive)
+
+Systematic bias in NEE, most likely associated with ...
+
+Overall, while the calibration does suggest room for improvement in the underlying model, it performed well for our target variable (AGB) and appears adequate for the job of testing the multinomial model against real AGB data for a range of different disturbance events.
 
 
 ## Remotely-sensed disturbance in Oregon

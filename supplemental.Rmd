@@ -1,0 +1,31 @@
+# Supplemental material
+
+
+```{r calibration,fig.cap="Predicted and observed woody biomass, leaf biomass, and NEE at US-Me2",echo=FALSE}
+load("fit.RData")
+
+plot(year,Cw.post,ylab="AGB (kgC/m2)",type='l',lwd=3,
+     xlim=c(2002,2012),ylim=range(Cw,na.rm=TRUE))
+points(year,Cw,col=2,pch="+",cex=2)
+legend("topleft",legend=c("model","data"),pch=c(NA,"+"),lty=c(1,NA),col=1:2)
+
+plot(year,Cl.post,ylab="Leaf Biomass (kgC/m2)",
+     ylim=range(c(Cl,Cl.post),na.rm=TRUE))
+points(year,Cl,col=2,pch="+")
+legend("topleft",legend=c("model","data"),pch=c(NA,"+"),lty=c(1,NA),col=1:2)
+
+plot(year,NEEm,ylab="annual NEE ()",
+     ylim=range(c(NEEm,aNEE),na.rm=TRUE))
+points(year,aNEE,col=2,pch="+")
+legend("bottomright",legend=c("model","data"),pch=c(NA,"+"),lty=c(1,NA),col=1:2)
+```
+
+
+```{r parameters,echo=FALSE}
+param.names = c("LUE","GAMMA","tauS","tauW","Av","sd_NEE","sd_leaf","sd_wood")
+param.desc = c("Light Use Efficiency","Fraction of GPP allocated to autotrophic respiration","Soil C residence time","Wood C residence time","Fraction of NPP allocated to leaves","NEE standard deviation","leaf C standard deviation","wood C standard deviation")
+param.table = cbind(param.names,param.desc,mle$par)
+colnames(param.table) <- c("Parameter","Description","Value")
+knitr::kable(param.table,caption="Calibrated model parameters")
+```
+
