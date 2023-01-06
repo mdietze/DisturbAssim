@@ -395,6 +395,8 @@ obs.pre  = Yw[,t04-1]
 obs.dist = Yw[,t04]
 obs.tlo  = Yw[,tlo]
 obs.class= dextract[,"t2004"]/10
+
+save(elist,obs.pre,obs.dist,obs.tlo,obs.class,file="elist.RData")
 ```
 
 
@@ -523,6 +525,7 @@ for(i in seq_along(exps)){
 
 }
 dev.off()
+save(stats,file="stats.RData")
 ```
 
 
@@ -585,6 +588,77 @@ false positives
 false negatives
 
 classification success
+
+## preprocess timeseries example for visualization
+```{r}
+## visualization to help select a site to look at
+plotly::plot_ly(data.frame(obs.pre=obs.pre,obs.post=obs.dist),x=~obs.pre,y=~obs.post)
+which.min((obs.pre-13.3)^2+(obs.dist-5.1)^2) ## select a point
+
+## settings
+site = 188
+exp.name = "P1Q1R4" #"P1Q1R1"  ## manually run for each experiment **
+
+## data
+NT = 33
+Yi = matrix(NA,NT,3)  ## observed data
+Yi[1:ncol(Yw),3] = Yw[site,]  ## only Cw observed
+  
+## model
+load(paste0("OR_SD_",site,"_",exp.name,".RData"),envir = viz)
+pool.names=c("Cleaf","Csoil","Cstem")
+test = viz$test
+
+for(i in 1:3){
+  
+    CI.Na = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("n[",i,"]"))
+      y[,sel.n]
+    })
+    
+    CI.D = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("D"))
+      y[,sel.n]
+    })
+
+    CI.Nf = sapply(X = test$Forecast, function(x){
+      mu = x$mufN[i]
+      sd = 1/sqrt(x$pfN[i,i])
+      return(mu + c(-1.96,0,1.96)*sd)
+    })
+    
+  plot(Yi[,i],
+       ylim = range(rbind(CI.Na,Yi[,i],CI.D),na.rm=TRUE),
+       type='n',
+       ylab=pool.names[i],xlab="time")
+  ecoforecastR::ciEnvelope(1:ncol(CI.Nf),CI.Nf[1,],CI.Nf[3,],col=ecoforecastR::col.alpha("blue",0.5))
+  ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[5,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
+  lines(CI.Na[3,],col="#b2df8a",lwd=2)
+  points(Yi[,i])
+  lines(CI.D[3,])
+  
+  
+}
+save(Yi,CI.Na,CI.D,file=paste0("OR_TS_",site,"_",exp.name,".RData"))
+```
+
+## summary info for filter divergence figures
+```{r}
+exp.name = "P1Q1R4" #"P1Q1R1"
+
+for(i in seq_along(exps)){
+  
+  ## divergence
+  div = (elist[[i]]$divergence[,1] - obs.tlo)/
+    (apply(elist[[i]]$divergence[,c(2,6)],1,diff)*0.5)
+  div.reg    = lm(div~obs.tlo)
+  div.median = median(div,na.rm = TRUE)
+  div.cov    = sum(div < 1 & div > -1,na.rm=TRUE)/sum(!is.na(div))
+  
+}
+```
 
 
 ## Next steps:
