@@ -32,33 +32,19 @@ With simulated disturbance we demonstrate the ability to not only detect discret
 
 # Intro
 
-**Borrow text from CMS proposals**
+Researchers have devoted considerable time and resources to developing "bottom-up" terrestrial carbon (C) cycle data products at landscape- to global-scales (**CITE**, e.g. SOCCR2). Such efforts have drawn upon various combinations of remote sensing, inventory data, field-based sensors (e.g., eddy covariance), and process-based models with the aims of improving our understanding of C cycle processes, improving predictions of future changes in the C cycle, and improving monitoring, reporting, and verification (MRV) or C stocks and fluxes (**CITE**). MRV in particular is driven by a combination of local, national, and international reporting requirements (e.g. UN Framework Convention on Climate Change) and increasingly by the demand for natural climate solutions and carbon market certification (**CITE**).
 
-1. The context: MRV and predicting Terrestrial C
-2. Status quo: LULC * look up table
-  + very coarse, doesn't capture spatiotemporal varibility
-  + rightly captures that disturbance and land use change both critical to C accounting and, more importantly, a place where we can exert some control
-  + BULC
-  + state-and-transition modeling
-  + process-model projections
-3. Alternative: SDA
-  + models capture process
-  + data constrains (data driven, model as cov)
-  + data fusion
-  + seamless transition from reanalysis to nowcast to forecast [@Dietze2017a]
-  + Disturbance is exactly why you would want to nudge a model back to reality
-4. The problem: Conventional SDA doesn't capture jumps
-  + series of nudges
-  + potentially misattributes pools and fluxes
-  + "drags down" neighbors **no sims of this yet**
-5. The solution:
-  + assimilate P(dist)
-  + update C | dist
-6. This paper
-  + Illustration of problem
-  + Derivation Multinomial
-  + Simulated data experiments (known disturbance)
-  + Real-world example
+A particularly critical part of carbon MRV is the impact of land use, land use change, forestry (LULUCF) and natural disturbance (e.g. wildfire, pests, wind), which can have major impacts on the carbon cycle, quickly turning C sinks into large sources, and are responsible for a large fraction of interannual C cycle variability (CITE). They are also places where management and policy can have the greatest impact on carbon pools and fluxes, in terms of avoiding transitions, increasing resilience, and managing restoration and recovery after transitions occur. Looking to the future, many types of disturbance are predicted to become more frequent and/or more intense, and there is mounting evidence that C stocks are likely to be more sensitive to climate effects on disturbance regimes than they are to the direct ecophysiological effects of climate and elevated $CO_2$ [@McDowell, @Andrews2018]. While there are a variety of approaches employed to monitor and understand the C cycle processes for intact ecosystems, when it comes to disturbance the status quo is based on detecting disturbances (e.g., via remote sensing) and then using a simple look up table to quantify C cycle impacts (CITE). While the closely related fields of disturbance detection and land use, land-use change, and forestry (LULUCF) monitoring have made considerable advances in recent years (CITE), the reliance on simple static look-up tables to quantify emissions is clearly missing considerable variability across space, time, and disturbance intensity.
+
+The alternative to look-up tables is to rely on process-based models to capture the spatiotemporal in the C cycle. However, by themselves process-based models are going to misrepresent many disturbances, either under- or over-predicting individual events, both because there is an inherently stochastic component to disturbances (CITE) and because the representation of disturbance is highly simplified in most models (CITE), with major classes of disturbance being absent from most models (e.g., forest pests, [@Hicke2022, @DietzeMatthes2014]). Ultimately, MRV needs to be done with the disturbances that actually happened, not those that were predicted. On the other hand, prescribing disturbance in models ignores the uncertainty in disturbance detection and brings us back to using look-up tables to prescribe how the disturbance is represented in the model.
+
+State data assimilation offers a promising path forward for addressing these challenges and is already being to see increasing applications in other aspects of carbon MRV [@Baatz2021]. The basic idea is that a process model is run numerous times to make a probabilistic prediction of the full carbon cycle (pools and fluxes) from one point in time to the next, sampling over the uncertainties about the current state of the system and possibly also parameter, driver, and process (residual) uncertainties. This multivariate prediction represents our (Bayesian) _prior_ understanding of the carbon cycle that is then updated, using Bayes' Theorem, based on observations of one or more these pools or fluxes [@Dietze2017a,@Wikle2007]. In essence, data assimilation "nudges" the model back towards the data, with the size of the nudge proportional to the relative uncertainties in the model (prior) and the data (Likelihood). The resulting posterior estimate is able to fuse numerous data constraints on the different pools and fluxes, is robust to large amounts of missing observations in space, time, and pool/flux, and provides a rich uncertainty estimate. Finally, unlike monitoring-only systems, data assimilation systems can seamlessly transition from reconstructing the past (a.k.a. reanalysis), to real-time monitoring (a.k.a. nowcast), to predictive forecasts [@Dietze2017a]. A handful of different terrestrial carbon data assimilation systems are now in opperations (e.g., CLM-DART, CCDAS, PEcAn), with applications at site [@Raiho2020], regional [@Raczka2021], continental [@Dokoohaki2022], and global [@Fox2022, @Rayner2005] scales.
+
+The potential advantages of applying state data assimilation to address the disturbance problem in carbon MRV are straightforward. Ensembles of model runs could capture the stochasticity in natural disturbance while also providing a process-based representation of both disturbance and carbon cycle processes and numerous possible sources of fine-scale heterogeneity (current vegetation conditions, climate, soils, etc.). The assimilation would then update the predictions based on what actually happened, formally accounting for the uncertainty in the disturbance observations, as well as fusing in numerous other data constraints (e.g., inventory, sensor, remote sensing). These observations may variously either reinforce or cast doubt upon the disturbance attribution, while also informing our understanding of pre- and post-disturbance heterogeneity. Data assimilation even has the potential to capture disturbances that are not represented explicitly in the models but are apparent in the observations.
+
+The problem is that, when it comes to assimilating disturbance, conventional data assimilation doesn't actually work (Figure \@ref(fig:enkf)). For reasons we'll explain in the _Methods_, instead of nudging a disturbed system to a disturbed state in the model, it nudges it to a "no man's land" in between the disturbed and undisturbed state that doesn't represent either state well. It can then take multiple iterations of the assimilation for these nudges to get the model back on track, in effect predicting gradual ecosystem degredation rather than a discrete disturbance and recovery, during which time this gradual decline will be misrepresented in MRV accounting (missing removals, fire combustion, etc.) and misinterpreted by the model (e.g. missing recruitment and respiration responses).
+
+Here we present a potential solution -- a novel assimilation algorithm that accounts for both the discrete nature of disturbance events and the continuous variability in disturbance magnitude. This assimilation is based on the idea of representing the ensemble forecast as a multimodal mixture module, with different modes capturing the undisturbed state and multiple alternative disturbances, and adding a Multinomial probability to the assimilation to allow it to discretely jump between states. In the following sections we will more formally explain the disturbance assimilation problem and derive our proposed solution. We will then apply this statistical model to both simulated data with known disturbances and real-world observations, making use of the Very Simple Ecosystem Model (VSEM) for predictions and remotely-sensed Landtrendr biomass and disturbance data products as observations, using the ponderosa pine ( _Pinus ponderosa_ ) ecosystems of central Oregon as a testbed [@Kennedy2018, @BayesianTools]. Overall, this manuscript aims to provide a proof-of-concept for the idea of disturbance assimilation, laying the foundation for future applications and algorith improvements.
 
 <!---- METHODS --->
 ```{r child = 'methods.Rmd'}

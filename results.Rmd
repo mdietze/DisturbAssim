@@ -338,4 +338,4 @@ plot(Rmult[Rs],thresh,col=Qs,pch=Qs,log="x",xlab="Variance Multiplier",ylab=expr
 legend("topleft",legend=paste0(Qmult[1:2],"x"),col=1:2,pch=1:2)
 ```
 
-    
+<!-- Future direction: rerun using disturbance data product as priors on disturbance probability -->
