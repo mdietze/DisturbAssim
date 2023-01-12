@@ -1,3 +1,8 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
 # Methods
 
 ## VSEM (Very Simple Ecosystem Model)
@@ -37,7 +42,7 @@ SSSD_figure <- function(){
 SSSD_figure()
 ```
 
-```{r concept, echo=FALSE, fig.cap="Top: In a conventional EnKF, a multimodal forecast (grey histogram) is approximated by a unimodal Normal (green), such that when a low probability disturbance is actually observed (red) the posterior (orange) does not capture this event. Bottom: In the multinomial filter the same multimodal forecast is represented by a mixture of normals (green and dark red) each weighted by their prior (forecast) probabulities. The posterior (blue), updates the mean and variance of each mode as well as their relative probabilities, in this case capturing the high probability that a disturbance occurred."}
+```{r concept, echo=FALSE, message = FALSE, fig.cap="Top: In a conventional EnKF, a multimodal forecast (grey histogram) is approximated by a unimodal Normal (green), such that when a low probability disturbance is actually observed (red) the posterior (orange) does not capture this event. Bottom: In the multinomial filter the same multimodal forecast is represented by a mixture of normals (green and dark red) each weighted by their prior (forecast) probabulities. The posterior (blue), updates the mean and variance of each mode as well as their relative probabilities, in this case capturing the high probability that a disturbance occurred."}
 library(rjags)
 par(mfrow=c(2,1))
 ## params
@@ -149,7 +154,7 @@ $$\delta p_{k,t} = max\{0,\bar{\rho}_{k,t}-p_{k,t} \}$$
 
 For "source" ensemble members that belong to categories that decreased in relative abundance, the excess is reassigned to new classes according to a Multinomial draw.
 
-$$c_{A|k} = Multinomial\left( n_k, {\vec{\delta p_t}}\over{\sum \vec{\delta p_t}}  \right)$$ 
+$$c_{A|k} = Multinomial\left( n_k, \frac{\vec{\delta p_t}}{\sum \vec{\delta p_t}}  \right)$$ 
 
 Conditional on this reassignment, the continuous states are updated according to [@Anderson2001] using the posterior statistics for that $X^L_{k,t}$. It is also worth noting that some cases of class reassignment may also require keeping track of categorical switches in Plant Functional Type (PFT), such as a transition from forest to agriculture, which implies a large jump in PFT parameters as well. One could apply the same [@Anderson2001] style adjustment to PFT parameters, but for simplicity here we just maintained alternative parameter ensembles for each PFT, with each ensemble member constructed with the identical anomalies around each PFT's mean..
 
@@ -190,6 +195,9 @@ Our study region was a Landsat tile over central Oregon, USA located between 120
 ```{r map, echo=FALSE, fig.cap="Remotely sensed observations from central Oregon for 2004 used as inputs to test the multinomial filter against real-world disturbances"}
 ## maps of pre-disturbance biomass, cover, and 2004 disturbance
 
+m = matrix(1:4,nrow=2,byrow = TRUE)
+layout(m)
+
 ## Cover
 if(!exists("cov04")) cov04 = raster::raster("cov04.tif")
 load("rat.RData")
@@ -208,7 +216,7 @@ if(FALSE){
   dis04ll = raster::projectRaster(dis04,crs=crs(cov04))
   #terra::plot(dis04ll,col=c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a'),asp=1,main="Landtrendr Disturbance",plg=list(legend=dname)) #"#a6cee3" '#33a02c'
 }
-if(!exists("dis04")) 
+if(!exists("dis04"))  dis04 = raster::raster("dis04.tif")
 dname = c("Intact","Other","Cut","Fire","Pest")
 raster::plot(dis04,col=c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a'),asp=1,
             axis.args=list(at=seq(-5,50,length=5),labels=dname,cex.axis=0.4), 
@@ -239,7 +247,7 @@ For each location we next extracted PAR driver data from the Daymet product [CIT
 
 For the assimilation experiment, each site was assimilated separately. In the initial round of experiments the observation error variance was set to $26.5\: kg^2/m^2$ based on [@Kennedy2018] Figure 2. Post-assimilation, we then extracted a number of metrics to assess algorithm performance: the posterior probability of disturbance in 2004, the posterior biomass pool size before disturbance, after disturbance, and at the end of the time-series (2017). The difference between the predicted and observed biomass at the end of the assimilation was taken as a metric of filter divergence, the situation where the model in a data assimilation algorithm becomes so confident in itself that assimilated observations have little impact on the posterior, which then diverges from observations. **ONCE RESULTS ARE FINALIZED, COME BACK AND FILL IN WHICH SPECIFIC ANALYSES WERE USED**. 
 
-Finally, based on preliminary results we performed a series of additional assimilation experiments where we manually altered the observation error, R, or process error, Q, to assess the sensitivity of our results. Table (\@ref(table:QRexp)) lists the multipliers that were used to adjust R and Q. The skill of these assimilation experiments were assessed the same as the original. In addition, changes in skill across experiments were assessed as a function of R and Q.
+Finally, based on preliminary results we performed a series of additional assimilation experiments where we manually altered the observation error, R, or process error, Q, to assess the sensitivity of our results. Table (\@ref(tab:QRexp)) lists the multipliers that were used to adjust R and Q. The skill of these assimilation experiments were assessed the same as the original. In addition, changes in skill across experiments were assessed as a function of R and Q.
 
 ```{r QRexp,echo=FALSE}
 ## summary table of experiments
