@@ -39,6 +39,7 @@ SSSD_figure()
 
 ```{r concept, echo=FALSE, fig.cap="Top: In a conventional EnKF, a multimodal forecast (grey histogram) is approximated by a unimodal Normal (green), such that when a low probability disturbance is actually observed (red) the posterior (orange) does not capture this event. Bottom: In the multinomial filter the same multimodal forecast is represented by a mixture of normals (green and dark red) each weighted by their prior (forecast) probabulities. The posterior (blue), updates the mean and variance of each mode as well as their relative probabilities, in this case capturing the high probability that a disturbance occurred."}
 library(rjags)
+par(mfrow=c(2,1))
 ## params
 set.seed(1066)
 p.dist = 0.05
@@ -186,22 +187,37 @@ Having tested the Multinomial assimilation against simulated data we next applie
 
 Our study region was a Landsat tile over central Oregon, USA located between 120 47'W and 123 7'W longitude and 43 45'N and 45 '4'N latitude. For this tile we extracted data from three derived Landtrendr datasets (http://emapr.ceoas.oregonstate.edu/pages/data/viz/index.html, tile h03v04):  biomass, cover, and disturbance. All three products were 30m resolution and annual timestep;biomass and cover extended from 1990-2017, while disturbance extended from 1984-2011 and a nearest neighbor algorithm was used to regrid the disturbance data to be the same as biomass and cover. The biomass product calibrated Landtrendr-processed Landsat data against field plot data using the gradient nearest neighbor (GNN) methodology to produce an annual biomass estimates [@Kennedy2018]. The cover product trained a spatiotemporal exploratory model (STEM), which uses an ensemble of regression trees defined within spatially overlapping support sets, against the 2001 U.S. National Land Cover Database (NLCD) to produce annual land-cover maps for Washington, Oregon, and California [@HOOPER2018]. To similify the analysis we focused on a single vegetation type, evergreen forest, which is the dominant vegetation cover in the region and consists primarily of Ponderosa pine (_Pinus ponderosa_). The disturbance product **need text and citation from Robert** [CITE]. To simplify analyses we aggregated the disturbance product into five classes: undisturbed, cut, fire, pest, and other.
 
-```{r map, echo=FALSE}
+```{r map, echo=FALSE, fig.cap="Remotely sensed observations from central Oregon for 2004 used as inputs to test the multinomial filter against real-world disturbances"}
 ## maps of pre-disturbance biomass, cover, and 2004 disturbance
 
 ## Cover
 if(!exists("cov04")) cov04 = raster::raster("cov04.tif")
 load("rat.RData")
-raster::plot(cov04,col=rat$color,axis.args=list(at=seq_along(rat$description),labels=rat$description,cex.axis=0.4),asp=1,main="Land Cover")
+raster::plot(cov04,col=rat$color,asp=1,main="NLCD Land Cover",
+            axis.args=list(at=seq_along(rat$description),labels=rat$description,cex.axis=0.4))
+#cov04 = terra::rast("cov04.tif")
+#terra::plot(cov04,col=rat$color,asp=1,main="NLCD Land Cover")
 
 ## Disturbance
-if(!exists("dis04")) dis04 = raster::raster("dis04.tif")
+if(FALSE){ 
+  ## both these options seem to interpolate/regrid during the projection, turning integer classes into continuous values that don't map the same
+  dis04 = terra::rast("dis04.tif")
+  dis04ll <- terra::project(dis04,crs(cov04))
+  
+  dis04 = raster::raster("dis04.tif")
+  dis04ll = raster::projectRaster(dis04,crs=crs(cov04))
+  #terra::plot(dis04ll,col=c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a'),asp=1,main="Landtrendr Disturbance",plg=list(legend=dname)) #"#a6cee3" '#33a02c'
+}
+if(!exists("dis04")) 
 dname = c("Intact","Other","Cut","Fire","Pest")
-raster::plot(dis04,col=c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a'),axis.args=list(at=seq(3,48,length=5),labels=dname,cex.axis=0.4),asp=1,main="Disturbance") #"#a6cee3" '#33a02c'
+raster::plot(dis04,col=c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a'),asp=1,
+            axis.args=list(at=seq(-5,50,length=5),labels=dname,cex.axis=0.4), 
+            main="Landtrendr Disturbance") #"#a6cee3" '#33a02c'
+
 
 ## Biomass
 if(!exists("bio04")) bio04 = raster::raster("bio04.tif")
-raster::plot(bio04,col=c('#ffffff','#edf8fb','#ccece6','#99d8c9','#66c2a4','#2ca25f','#006d2c'),asp=1,main="Biomass")
+raster::plot(bio04,col=c('#ffffff','#edf8fb','#ccece6','#99d8c9','#66c2a4','#2ca25f','#006d2c'),asp=1,main="Landtrendr Biomass")
 
 ```
 
@@ -214,14 +230,6 @@ Our Multinomial disturbance assimilation model takes as priors the disturbance p
 VSEM was calibrated primarily using data from 2002-2019 from the Ameriflux site US-ME2 (lat.lon), a mature Ponderosa pine stand. VSEM pools (leaf, wood, and soil C) were initialized using the earliest available site-specific data from the Ameriflux BADM (Biomass, Ancillary, Disturbance, Management) dataset. An additional ten years of leaf and wood biomass data were also available from the BADM, which we included as part of the calibration dataset. Also included was the cumulative annual tower NEE (2002-2019). Because we were working with annual data we assumed Normal likelihoods for all three response variables, and because our priority was the correct prediction of aboveground biomass we upweighted the wood likelihood by 4 and downweighted the NEE likelihood by 1/4. 
 
 Prior to calibration we set the leaf area ratio (LAR) to 15.7 m2/kgC and leaf residence time (tauL) to 4.7 years based on data from the BADM and left the light extinction coefficient (KEXT) at its default (0.5). The remaining fit parameters were the light use efficiency (LUE), the fraction of GPP allocated to autotrophic respiration (GAMMA), the fraction of NPP allocated to leaves (Av), the wood and soil C residence times (tauW, tauS), and the residual standard deviations for each of our data constraints (sd_NEE, sd_leaf, sd_wood). The fit was done taking a Maximum Likelihood approach using base R's `optim` function. Finally, because the process error within a dynamical data assimilation system is not identical to the calibration residual error, we estimated the leaf and wood process errors (Ql, Qw) based on the difference between the predicted and observed net annual changes in each of these pools. Because there was not an equivalent annually-observed soil carbon dataset, the soil carbon process error (Qs) was estimated based on the predicted mean annual rate of change under the simplifying assumption that the true soil carbon is in steady-state.
-
-```{r paramTable,echo=FALSE}
-load("fit.RData")
-varName = c(names(theta),"Ql","Qw","Qs")
-varName[c(5,7)] = c("tauL","tauW")
-paramTable = data.frame(varName,fit=format(c(theta,Ql,Qw,Qs),digits=3,scientific=TRUE))
-knitr::kable(paramTable, caption = "VSEM parameter estimates")
-```
 
 ### Assimilation of remotely-sensed data
 

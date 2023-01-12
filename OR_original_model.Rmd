@@ -544,9 +544,11 @@ Rs = as.numeric(substr(names(elist),6,6))
 ## Divergence
 div.cov = sapply(stats,"[[","div.cov")
 plot(Rmult[Rs],div.cov,col=Qs,log="x",xlab="Variance Multiplier",ylab="Filter Coverage")
+legend("topright",legend=paste0(Qmult[1:2],"x"))
 
 div.median = sapply(stats,"[[","div.median")
 plot(Rmult[Rs],div.median,col=Qs,log="x",xlab="Variance Multiplier",ylab="Median Divergance")
+legend("topleft",legend=paste0(Qmult[1:2],"x"))
 
 div.slope = sapply(stats,function(x){coef(x$div.reg)[2]})
 plot(Rmult[Rs],div.slope,col=Qs,log="x",xlab="Variance Multiplier",ylab="Divergance Slope")

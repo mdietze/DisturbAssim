@@ -42,7 +42,8 @@ for(i in 1:3){
 }
 ```
 
-```{r sssdBi,echo=FALSE, fig.asp=1,fig.width=3, fig.cap="Experiment 2: Forecast and Analysis ensembles at the disturbance (t=10). Arrows demonstrate the ensemble adjustment of a sample of 10 ensemble members."}
+```{r sssdBi,echo=FALSE, fig.asp=1,fig.width=6, fig.cap="Experiment 2: Forecast and Analysis ensembles at the disturbance (t=10). Arrows demonstrate the ensemble adjustment of a sample of 10 ensemble members."}
+## for html set fig.width=3
 load("exp2.Rdata")
 
 plot(Analysis[[10]]$Na[,1],Analysis[[10]]$Na[,3],pch="+",col=ecoforecastR::col.alpha("#b2df8a",alpha=1),
@@ -208,58 +209,45 @@ legend("topleft",
 
 ## VSEM Calibration
 
-Prior to applying the VSEM to simulate the conifer forest carbon cycle in Oregon the model was calibrated against AGB, leaf C, and NEE data from Ameriflux site US-ME2.  Best fit parameters are given in Supplemental Table \@ref(tab:parameters)
+Prior to applying the VSEM to simulate the conifer forest carbon cycle in Oregon the model was calibrated against AGB, leaf C, and NEE data from Ameriflux site US-ME2.  Best fit parameters are given in Supplemental Table \@ref(tab:parameters). The best fit to the observed data was for AGB, which had a $R^2$ of 0.977, a RMSE of 0.089 $kgC/m^2$ (1.7%), and a bias of -1.1% (-0.059 $kgC/m^2$) (Supplemental figure \@ref(fig:calibrate)). Achieving this fit came at the cost of nontrivial systematic biases in both leaf carbon (0.064 $kgC/m^2$, 13%) and NEE (0.528 $kgC/m^2/year$, 69%). The RMSEs for leaf carbon (0.067 $kgC/m^2$, 13.6%) and NEE (0.612 $kgC/m^2/year$, 80%) were similar to the biases, suggesting that most of the model error was systematic, particularly for leaf carbon.
 
-RMSE
+The dynamic process errors for the leaf, wood, and soil pools, which were approximated as the RMSE of the _change_ in each pool each year, were 0.01, 0.03, and 0.15 $kgC/m^2/yr$. This represents a dynamic error of 2.1%, 0.6%, and 0.7% respectively relative to the size of the pool and a CV of 114% and 17% for leaf and wood relative to the observed annual biomass increment.
 
-The closest fit to the observed data was for woody biomass, which had a RMSE of 0.08947263 $kgC/m^2$ and a $R^2$ of 0.9772768 (Supplemental figure \@ref(fig:calibrate))
+Overall, while the inability of the calibration to capture multiple data constraints simultaneously does suggest room for improvement in the underlying model (@Cameron2022), the model performed well for our target variable (AGB) and appears adequate for the job of testing the multinomial model against real AGB data for a range of different disturbance events.
 
-RMSE
-> RMSE
-[1] 0.06703855 0.08947263 0.61244709
-
-Process error was approximated as...
-> Ql
-[1] 0.01040558
-> Qw
-[1] 0.03424142
-> Qs
-[1] 0.1499524
-
-## Cv of Q
-> Ql/mean(diff(Cl),na.rm=TRUE)
-[1] 1.137623
-> Qw/mean(diff(Cw),na.rm=TRUE)
-[1] 0.1658704
-
-Systematic bias in leaf C (model is ~2x too productive)
-
-Systematic bias in NEE, most likely associated with ...
-
-Overall, while the calibration does suggest room for improvement in the underlying model, it performed well for our target variable (AGB) and appears adequate for the job of testing the multinomial model against real AGB data for a range of different disturbance events.
+```{r paramTable,echo=FALSE}
+# load("fit.RData")
+# varName = c(names(theta),"Ql","Qw","Qs")
+# varName[c(5,7)] = c("tauL","tauW")
+# paramTable = data.frame(varName,fit=format(c(theta,Ql,Qw,Qs),digits=3,scientific=TRUE))
+# knitr::kable(paramTable, caption = "VSEM parameter estimates")
+```
 
 
 ## Remotely-sensed disturbance in Oregon
 
-```{r ORorig, echo=FALSE}
+```{r ORorig, echo=FALSE,fig.asp=0.75,fig.cap="Filter divergence and disturbance detection for central Oregon test case. Left column is the default configuration while the right column is a reduced observation error experiment (Exp 2). Top row is the assimilation for an example site. Middle row shows the across-site distribution of divergence metrics and how these vary by disturbance magnitude (purple) and disturbance type (symbols). Bottom row shows how the probability of detecting the disturbance varies with disturbance magnitude"}
 ## summary figure showing didn't work great at default error rate
+m = matrix(1:6,nrow=3,byrow = TRUE)
+layout(m)
 
 ### Row 1: Example time-series ###
 site = 188
 exp.name = c("P1Q1R1","P1Q1R4")
-exp.pretty.name = c("Original","Low Obs Error")
+exp.pretty.name = c("(a) Example site, Original","(c) Example site, Low Obs Error")
 pool.names=c("Cleaf","Csoil","AGB")
 i = 3 ## Stem
+time = 1985:2017
 for(ex in seq_along(exp.name)){
   load(paste0("OR_TS_",site,"_",exp.name[ex],".RData"))
-  plot(Yi[,i],
+  plot(time,Yi[,i],
        ylim = range(rbind(CI.Na,Yi[,i],CI.D),na.rm=TRUE),
        type='n',
        ylab=pool.names[i],xlab="time",
        main=exp.pretty.name[ex])
-  ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[5,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
-  lines(CI.Na[3,],col="#b2df8a",lwd=2)
-  points(Yi[,i])
+  ecoforecastR::ciEnvelope(time,CI.Na[1,],CI.Na[5,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
+  lines(time,CI.Na[3,],col="#b2df8a",lwd=2)
+  points(time,Yi[,i])
   if(ex == 1) {
     legend("bottomleft",legend=c("Assimilation","Data"),
        lwd=5,col=c("#b2df8a","black"),cex=0.7)
@@ -272,19 +260,24 @@ load("elist.RData")
 disturb.names = c("Intact","Other","Cut","Fire","Pest")
 disturb.col = c("#ebebeb",'#b04c00','#1f78b4','#faabaa','#b2df8a')
 disturb.col.al <- tapply(disturb.col,1:5,FUN=ecoforecastR::col.alpha,0.7); disturb.col.al[1] = disturb.col[1]
+div.pretty.name = c("(b) Divergence, Original","(e) Divergence, Low Obs Error")
+div.reg <- list()
+div.class <- list()
+obs.class.re = obs.class; obs.class.re[obs.class.re ==4] = 3; obs.class.re[obs.class.re ==5] = 4; obs.class.re = obs.class.re + 1
 for(i in 1:2){
   ## divergence
   div = (elist[[i]]$divergence[,1] - obs.tlo)/
     (apply(elist[[i]]$divergence[,c(2,6)],1,diff)*0.5)
-  div.reg    = lm(div~obs.tlo)
+  div.reg[[i]]    = lm(div~obs.tlo)
+  div.class[[i]]    = lm(div~obs.tlo + as.factor(obs.class))
   
   dh = density(na.omit(div))
 #  abline(v=c(-1,1),lty=2)
-  plot(obs.tlo,div,col=disturb.col.al[obs.class],
+  plot(obs.tlo,div,col=disturb.col.al[obs.class.re],
        xlab="final AGB",ylab="Divergence",
-       pch=16)
+       pch=16, main=div.pretty.name[i])
   abline(h=c(-1,1),lty=2)
-  abline(div.reg,col="purple",lwd=3)
+  abline(div.reg[[i]],col="purple",lwd=3)
   abline(v=0,lty=2)
   lines(dh$y*10,dh$x,lwd=3)
   if(i == 1) legend("topright",legend=disturb.names,
@@ -297,39 +290,52 @@ for(i in 1:2){
 pred.seq=list()
 distabs = obs.pre-obs.dist
 pred.seq$distabs = seq(min(distabs),max(distabs),length=500)
+detect.pretty.name = c("(c) Probability of detection, Original","(f) Probability of Detection, Low Obs Error")
+dist.qb.abs <- list()
 for(i in 1:2){
   distrate = distrate = elist[[i]]$distrate
-  dist.qb.abs = glm(distrate ~ distabs,
+  dist.qb.abs[[i]] = glm(distrate ~ distabs,
                     na.action=na.omit,
                     family=quasibinomial("logit")
   )
-  plot(distabs,distrate,col=disturb.col.al[obs.class],
+  plot(distabs,distrate,col=disturb.col.al[obs.class.re],
        xlab="AGB disturbance magnitude",ylab="P(detect)",
-       pch=16)
-  lines(pred.seq$distabs,predict(dist.qb.abs,newdata=pred.seq,type="response"),col="purple")
+       pch=16, main=detect.pretty.name[i],xlim=c(0,17))
+  lines(pred.seq$distabs,predict(dist.qb.abs[[i]],newdata=pred.seq,type="response"),col="purple")
   if(i == 1) legend("topleft",legend=disturb.names,
                   col=disturb.col,pch=16,cex=0.7,
                   text.col=c(1,disturb.col[2:5]))
 }
 ```
+In total we assimilated 365 example AGB timeseries from our central Oregon study region, with 81 coming from undisturbed sites and 78, 88, 92, and 17 coming from clear cuts, fires, forest pests, and other disturbances, respectively. Initial applications of the multinomial filter exhibited high rates of filter divergence, with a coverage of only `r format(stats[[1]]$div.cov*100,digits=3)`% of the observations falling within the Analysis 95% CI at the end of the timeseries. Filter divergence is a known issue for Kalman Filters, not something unique to our multinomial filter, and results from the model becoming falsely overconfident in itself such that it ignores, and diverges from, the data. Figure \@ref(fig:ORorig)a demonstates an example of this for a site that experienced a forest fire in 1999, yet the model continues to believe the site is undisturbed. Across sites the magnitude of filter divergence observed was negatively correlated with the amount of biomass at the end of the timeseries (Figure \@ref(fig:ORorig)b, p < `r format(anova(div.reg[[1]])$"Pr(>F)"[1],digits=3,scientific=TRUE)`). In other words, sites with low final biomass (i.e., large previous disturbance) showed a larger divergence and the divergence declined as the final biomass increased. Divergence also varied by disturbance type (p < `r format(anova(div.class[[1]])$"Pr(>F)"[2],digits=3,scientific=TRUE)`), with clear cuts having the lowest divergence for a given disturbance size and forest pests being lower than the fires and "other". Despite the issue of filter divergence there was still a positive relationship between disturbance magnitude and the posterior probability of detecting disturbance (Figure \@ref(fig:ORorig)c, p < `r format(summary(dist.qb.abs[[1]])$coefficients[2,4],digits=3,scientific=TRUE)`). However, detection was rarely successful for AGB disturbances that removed less than 7.5 $kgC/m^2$ and did not exceed 50% until disturbances were larger than `r bm=coef(dist.qb.abs[[1]]); format(-bm[1]/bm[2],digits=2)` $kgC/m^2$.
 
+The causes of filter divergence are known to be some combination of model overconfidence (e.g., insufficient process error, Q) and high observation error (R) in the data. As described in the Methods we ran additional computational experiments where we varied Q and R (\@ref(table:QRexp)) to verify that without filter divergence the multinomial filter was able to capture real-world disturbances and to assess what level of variance inflation was required to do so. Figure \@ref(fig:ORorig)d-f show the results for Experiment 2, where we experimented with reducing the observation error, R. In this experiment we see that the data assimilation follows the observations closely, with a much tighter interval estimate, and is able to catch the disturbance event (Figure \@ref(fig:ORorig)d). We also see much lower incidence of filter divergence across sites, with a posterior coverage at the final timestep of `r format(stats[[2]]$div.cov*100,digits=3)`%, (Figure \@ref(fig:ORorig)e). Divergence is no longer significantly affected by disturbance magnitude (p < `r format(summary(div.class[[2]])$coefficients[2,4],digits=3)`) and the only significant effect of disturbance type was a small reduction in divergence for clearcuts (p < `r format(summary(div.class[[2]])$coefficients[3,4],digits=3)`). Most importantly, detection probabilities were strongly related to disturbance magnitude (Figure \@ref(fig:ORorig)f), successfully detecting disturbances that removed more than `r bm=coef(dist.qb.abs[[2]]); format(-bm[1]/bm[2],digits=2)` $kgC/m^2$.
+
+Looking across all of our experiments, the coverage of our filter divergence statistic improved as the observation error decreased (Figure \@ref(fig:divExp)a). Increasing process error had little impact at the original observation error, but improved coverage once the observation error was decreased. The threshold disturbance magnitude required to detect disturbances also improved (i.e., became smaller) as the observation error decreased (Figure \@ref(fig:divExp)b) but was insensitive to process error, at least for the values we explored in our computational experiments.
     
-* RESULTS
-  * limited success under default parameters
-    * high frequency of filter divergence [summary fig, example divergence fig]
-    * divergence coverage original `r stats[[1]]$div.cov`
-    * divergence coverage low error `r stats[[2]]$div.cov`
-    * the smaller the observed biomass at the end of the timeseries, the larger the divergence [include scatterplot?]
-    * low rate of detected disturbance [calc stat?, hist? cdf?]
-    * what disturbances were detected tended to be associated with high pre-disturbance biomass and a large reduction in biomass (both absolute and proportional). Most commonly seen in dist class "red"
-  * needed to reduce obs and process error to work
-  * example "successful" scenario: P1Q1R4
-    * reduced observation error
-    * abs magnitude of disturbance is best predictor of assim prob. [fig]
-      * given magnitude, dist type n.s.  
-  * comparative analysis
-    
-    
-    
-    
+```{r divExp,echo=FALSE,fig.cap="Sensitivity of (a) filter divergence coverage, and (b) disturbance detection threshold to variance inflation of the observation error (x-axis) and process error (symbols)",fig.asp=0.75 }
+m = matrix(1:3,nrow=3,byrow = TRUE)
+layout(m)
+## Divergence
+div.cov = sapply(stats,"[[","div.cov")
+plot(Rmult[Rs],div.cov,col=Qs,pch=Qs,log="x",xlab="Variance Multiplier",ylab="Filter Coverage",main="(a) Filter Coverage")
+legend("topright",legend=paste0(Qmult[1:2],"x"),col=1:2,pch=1:2,title="Q")
+
+#div.median = sapply(stats,"[[","div.median")
+#plot(Rmult[Rs],div.median,col=Qs,pch=Qs,log="x",xlab="Variance Multiplier",ylab="Median Divergance",main="(b) Filter Divergence")
+#legend("topleft",legend=paste0(Qmult[1:2],"x"),col=1:2,pch=1:2)
+
+## Detection probability
+for(i in 3:6){
+  distrate = distrate = elist[[i]]$distrate
+  dist.qb.abs[[i]] = glm(distrate ~ distabs,
+                    na.action=na.omit,
+                    family=quasibinomial("logit")
+  )
+}
+thresh = sapply(dist.qb.abs,function(x){bm=coef(x); -bm[1]/bm[2]})
+plot(Rmult[Rs],thresh,col=Qs,pch=Qs,log="x",xlab="Variance Multiplier",ylab=expression("Detection Threshold" ~ (kgC/m^2)),main="(c) Disturbance Detection Threshold")
+legend("topleft",legend=paste0(Qmult[1:2],"x"),col=1:2,pch=1:2)
+```
+
     

@@ -235,6 +235,19 @@ RMSE = sqrt(c(mean((Cl.post-Cl)^2,na.rm=TRUE),
             mean((NEEm-aNEE)^2,na.rm=TRUE)))
 1-RMSE^2/c(var(Cl,na.rm = TRUE),var(Cw,na.rm = TRUE),var(aNEE))
 
+avg = c(mean(Cl,na.rm=TRUE),
+            mean(Cw,na.rm=TRUE),
+            mean(aNEE,na.rm=TRUE))
+
+bias = c(mean((Cl.post-Cl),na.rm=TRUE),
+            mean((Cw.post-Cw),na.rm=TRUE),
+            mean((NEEm-aNEE),na.rm=TRUE))
+bias
+bias/avg
+RMSE/avg
+
+c(Ql,Qw,Qs)/c(avg[1:2],mean(Cs.post))
+
 save(theta,Ql,Qw,Qs,NEEm,aNEE,year,Cl,Cl.post,Cw,Cw.post,mle,file="fit.RData")
 ```
 
