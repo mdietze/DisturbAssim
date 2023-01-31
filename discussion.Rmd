@@ -37,72 +37,67 @@ Indeed, doing a better job at propagating model uncertainties correctly only bec
 
 ## Future Directions: Current algorithm
 
+In the following subsections we discuss ways that the proof-of-concept presented here could be applied and built upon. We start by addressing future directions that make use of the current algorithm "as is", discussing ways that we could better leverage multiple data constraints, improved disturbance priors, and existing disturbance data products.
+In terms of multiple data constraints, it is worth noting that, unlike in the simulated data experiment, our real-world application only relied on a single data constraint.
+If we had leveraged additional data constraints, we would have gained additional confidence in our ability to detect real disturbances.
+One way to to do this is to bring in additional data on the same pool, in this case AGB, reducing the overall observation error. This could be done through some combination of field data [e.g., Forest Inventory and Analysis, CITE], lidar [e.g., GEDI, CITE], microwave vegetation optical depth [e.g., SMAP, CITE Koenings], or radar [e.g., BIOMASS, CITE]. 
+This was not done in this example because data products based on different observations have a different spatial resolutions, which would need to be addressed. Fusing in a data assimilation framework is well established but was judged beyond the scope of the current study because it requires running a fully spatial assimilation rather than a simple site-scale timeseries model. Basically, one either needs to run the assimilation at a fine spatial resolution and use an observation operator to map many model grid cells to one observation, or one could run the assimilation at a coarse spatial resolution and use an observation operator to map one model grid cell to many observations [@Dietze2017a].
+
+Another way would be to bring in additional data on different pools, such as LAI, which often has lower observation errors.
+In addition to the direct increase in data volumes, the positive correlation between LAI and AGB would allow the assimilation algorithm to borrow strength indirectly (i.e. observations of LAI would help constrain AGB and observations of AGB would help constrain LAI). 
+Existing LAI data products [e.g., MODIS, CITE] have the same spatial mismatch issue discussed above.
+Alternatively, a data product based on LandSAT would be at the same resolution but would have required additional development [e.g., @Zhang2023] and would need to account for the observation error covariance between the two products (i.e. errors in data products based on the same underlying spectra would not be independent). 
+In addition to bringing in additional data constratins on different pools, we could also constrain our disturbance estimates using observations on different ecosystem fluxes and processes, such as eddy covariance (carbon, water, and energy fluxes), solar induced fluorescence (a proxy for gross primary productivity), thermal imaging (a proxy for water stress and evapotranspiration).
+
+In addition to constraining our estimates of disturbance through the ecosystem state variables, we can also improve them by improving our priors on the disturbance probability. 
+In our simple case study we relied on static and spatially-homogenous prior probabilities on different disturbance rates, an approach somewhat similar to the simplest state-and-transition models of land use and disturbance [@Daniel2016].
+More complex state-and-transition models are possible that allow these priors to be spatially heterogenous (e.g., relying on spatial covariates) or time evolving (e.g., relying on temporal covariates). Dynamic models are also possible that rely on the current state of a pixel (e.g., increasing fuel loads increase the probability of fire), the state of adjacent pixels (e.g., spatially contagious disturbances such as fire), or even those involving more distant spatial relations (e.g., dispersal kernels of biotic pests and pathogens) (CITATIONS).
+In addition to relying on external state-and-transition models, one of the appeals of working with process-based ecosystem models is that many of they include submodules that represent different types of disturbance internally (e.g., fire, pests). In these cases we can either extract the model's internally predicted probabilities or simply rely on the frequency of events predicted across the ensemble of model runs.
+
+The other way to improve upon the prior estimates of disturbance probability is to rely on external disturbance data that's not part of the assimilation itself. 
+For example, in our Oregon case study it is clear that the Landtrendr disturbance product is "seeing" more about disturbance than is being expressed in the AGB product alone, as the the disturbance product is looking for different information (e.g., weighting bands differently, training to distinguish among types of disturbance not just a loss of biomass). 
+Therefore, one alternative to relying on models to predict disturbance priors is to use the disturbance product and its classification error statistics to specify priors itself to identify the error.
+This approach could be particularly valuable for distinguishing among alternative disturbance types (e.g., forest wildfire, forestry, and conversion to agriculture or development), especially for disturbance products that make use of bands outside of the normal optical range (e.g., thermal-based active fire products).
+Applying this approach was not done in our test case because we wanted to keep the disturbance product separate for purposes of validation, but would be relatively straightforward to implement.
+It's important to note that when using external disturbance data as priors we're still not prescribing disturbances deterministically, during the assimilation observations about ecosystem pools and fluxes would thus either reinforce these products or call them into question. 
+Finally, it is worth nothing that relying on processed-based models and external disturbance data products are not mutually exclusive.
+The fusion of disturbance products and disturbance models could be part of the future development of the Multinomial filter itself (see next subsection), but may be simpler to handle as part of the prior construction. For example, one could start with the models as priors and then update these using one or more disturbance product observations [e.g., using the Bayesian Updating of Land Cover (BULC) algorithm, @CARDILLE2016; @Crowley2019] and then use these posteriors as the priors in the data assimilation.
 
 
-It is also worth noting that, unlike in the simulated data experiment, our real-world application only relied on a single data constraint.
-If we had leveraged additional data constraints, such as LAI, we would have gained additional confidence in our ability to detect real disturbances, not just because LAI data products often have lower observation errors but because the addition of additional data reduces the overall observation error and the positive correlation between LAI and AGB would allow the assimilation algorithm to borrow strength indirectly (i.e. observations of LAI would help constrain AGB and observations of AGB would help constrain LAI). 
-In practice this is nontrivial because LAI data products based on different observations (e.g. MODIS) have a different spatial resolution, which would need to be addressed. 
-Alternatively, a data product based on LandSAT would have required additional development [e.g., @Zhang2023] and would need to account for the observation error covariance between the two products (i.e. errors in data products based on the same underlying spectra would not be independent). 
+## Future Directions: Computational challenges
 
-* Lessons learned from computational experiments
-
-* OREGON: FUTURE DIR
-
-* multiple constraints
-    * also would benifit from more products (e.g. LAI)
-
-  * disturbance products are 'seeing' more than is in AGB product alone
-
-  * Disturbance priors need to be spatially heterogenous and evolve temporally
-    * Connect to state-and-transition literature
-    * shared spatial information (e.g. dispersal kernels)
-
-
-## Future Directions: Algorithm Development
-
-  * would be good to add 'memory' to algorithm so further evidence of disturbance reinforces initial detection (similar to BLC); would allow reduction in time step and greater sensor fusion
-
-* Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
-* Approximation of not simulating disturbed ensemble members and relying SOLEY on ensemble adjustment
 * Analytical approximation of sequential beta-binomial then KF vs full joint model
 
-Leftover text from Methods:
-  + x SS Multi-Disturbance - distinct
-  + x SS Multi-Disturbance w/ distinct, PFT switching
-      * mention parallel PFT ensembles
-      * need to protect against long-term PFT leakage; related to more general need to "look back"
-  + x Simple Multi-site: spatial cov
-  + Future
-      * SSMD - initially overlapping but diverge
-        * how to handle updating of assignment based on new information?
-      * SSMD - transition probabilities change with state
-        * rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
-
-
-
-
-
-* Future directions
-
-  * Scaling up -> spatially implicit
-    * ED2
-    * Contagion
-  * Scaling up -> emulation
+* Scaling up -> emulation
     * Applied at scale full model would be both computationally prohibitive and highly redundant (similar sites, such as spatially adjacent, are going to have very similar inputs and output)
     * run full Bayesian model for a subset of locations stratified by relevant variables (IC, observed data, possibly also met, soils, etc.)
     * build ML emulator to predict outcome of full Bayesian model
     * use ML emulator to predict full model; interpolate in env/obs space -> map to physical space
 
-* Issues
-  * Need a more detail exploration of rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
-  * Would like to add look-back capabilities (ensemble backward smoothing) to update assignments based on more recent info
-    * related: with multi-PFT need to check for, and protect against, long term PFT leakage
-  * Computational demand it high for problems with many grid cells
-    * Efficient (semi-)analytic approximations or LUT
-    * work at larger spatial scales and account for subgrid disturbance heterogeneity implicitly [@McCabe2019]
+
+## Future Directions: Algorithm Development
+
   * Multisite needs a way of estimating $\rho$ by site with cross site correlations, rather than unique $\rho$ for all permutations
     * for $\rho$ handle the covariances of nearby sites -- disturbance in one usually increases the probability of disturbance in others
     * similarly, need to be able to compose Multisite $\mu_f$ and $P_f$, from individual site values with reasonable approximations of cross-[site x pool] correlations
+
+* would be good to add 'memory' to algorithm so further evidence of disturbance reinforces initial detection (similar to BLC); would allow reduction in time step and greater sensor fusion
+  * example case: initially overlapping but diverge
+  * Would like to add look-back capabilities (ensemble backward smoothing) to update assignments based on more recent info
+
+* PFT switching
+      * mention parallel PFT ensembles
+      * need to protect against long-term PFT leakage; related to more general need to "look back"
+
+
+
+* Scaling up -> spatially implicit
+  * work at larger spatial scales and account for subgrid disturbance heterogeneity implicitly 
+    * ED2
+    * Contagion [@McCabe2019]
+
+
+
 
 ## Conclusion
 
