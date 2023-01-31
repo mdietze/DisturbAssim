@@ -1,41 +1,65 @@
 # Discussion
 
-* Interpretation
-  * TBD based on results
+## Algorithm development and simulated data experiments
 
-* Issues
-  * Need a more detail exploration of rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
-  * Would like to add look-back capabilities (ensemble backward smoothing) to update assignments based on more recent info
-    * related: with multi-PFT need to check for, and protect against, long term PFT leakage
-  * Computational demand it high for problems with many grid cells
-    * Efficient (semi-)analytic approximations or LUT
-    * work at larger spatial scales and account for subgrid disturbance heterogeneity implicitly [@McCabe2019]
-  * Multisite needs a way of estimating $\rho$ by site with cross site correlations, rather than unique $\rho$ for all permutations
-    * for $\rho$ handle the covariances of nearby sites -- disturbance in one usually increases the probability of disturbance in others
-    * similarly, need to be able to compose Multisite $\mu_f$ and $P_f$, from individual site values with reasonable approximations of cross-[site x pool] correlations
+At a high-level, the simulated data experiments demonstrate that the Multinomial filter is able to address the fundamental problem that traditional data assimilation encounters when faced with disturbance events. Rather than nudging the posterior state stranded into a "no man's land" between the disturbed and undisturbed states, the Multinomial successfully makes a discrete jump in state. Through the simulated data experiments we also demonstrated: (1) That the algorithm is robust to false positives -- once in the disturbed state it does not interpret further dips in LAI as new disturbances since those data are consistent with the observation error around the model's predicted recovery trajectory; (2) That the algorithm is successfully able to fuse observations of multiple pools simultaneously; (3) That it can distinguish among multiple types of disturbance; (4) That it can accommodate disturbances that result in a discrete change in plant functional type (e.g., forest to grassland or agriculture); and (5) That the sharing of information across space in multi-site assimilations, which normally increases precision and handles missing observations, is not thrown off by disturbance events (e.g., reducing biomass in undisturbed sites). From a data assimilation perspective, the algorithm works as intended and is superior to conventional alternatives at detecting disturbance.
 
-* Discussion of similar approaches
-[@Ye2020]
+From a disturbance detection perspective, three things set the Multinomial assimilation apart from other conventional time-series based disturbance detection algorithms (as opposed to static image classifications), such as Landtrendr [@KENNEDY2010], CCDC (Continuous Change Detection and Classification) [@ZHU2014; @Pasquarella2017; @ZHU2020] and BFAST (Break detection For Additive Season and Trend) [@VERBESSELT2012]. First, most other algorithms flag disturbances as departures from the predicted value -- a rejection of the "status quo" hypothesis. With the multinomial, we are instead treating disturbance detection as a choice between competing hypotheses, assessing how much weight to place on the "status quo" versus different alternative disturbance options. Second, most of these algorithms rely on a moving-window approach as part of their "status quo" prediction, which requires accessing and processing a time-series of data from the past every time an prediction is updated. The iterative algorithms that form the basis for data assimilation (e.g., Kalman Filter) have on occasion been applied to disturbance detection (using statistical, rather than process-based model) and have demonstrated greater computational efficiency [@Ye2020]. @Ye2020 avoid the "no man's land" nudge problem by the simple expedient of performing threshold-based disturbance detection prior to assimilation and not assimilating disturbed sites. Third, other algorithms are relying on simple statistical models for their predictions of the status quo, such as harmonic time-series models, while the Multinomial model is relying on the predictions of a process-based ecosystem model. This has three distinct advantages: (1) We are leveraging greater process understanding in the status quo prediction, potentially making the algorithm more robust in the face of extreme events that are not disturbances (e.g., unusually cold or dry) but which alter the magnitude or phenology of seasonal cycles; (2) While not included in the simple "toy" model used in these analyses, process-based models also have the potential to leveraging greater process understanding in predicting the likelihood of disturbances, for example by accounting for fuel loads, fuel moisture, and ignition rates in predicting the likelihood of fire; (3) Because process-based models are predicting multiple pools and fluxes that can be compared to multiple distinct types of data, the Multinomial algorithm provides a natural way to fuse multiple types of data that would either reinforce a disturbance detection (if all sources are pointing in the same direction) or call it into question. While conventional disturbance detection algorithms are overwhelmingly based on multispectral remote sensing from either a single sensor or a pre-harmonized fusion of multiple sensors [e.g., Harmonized Landsat Sentinel-2, @CHEN2021; @SHANG2022], data assimilation approaches can simultanously integrate a wide range of relevant data types, for example lidar, microwave, thermal, solar-induced fluorescence, and field data. Data assimilation can also integrate a range of optical sensors (both multispectral and hyperspectral) based on their spectral response functions, rather than requiring pre-harmonization [@Shiklomanov2021; @Zhang2023]).
+ 
 
-* Calibration was "quick and dirty" because the focus was on disturbance detection not default dynamics. For actual carbon monitoring and forecasting we would recommend a more extensive multi-site Bayesian calibration so that parameter uncertainty can be propagated [CITE istem 2018, dietze 2017], preferably employing hierarchical approaches to also capture parameter heterogeneity [CITE istem 2021]. Similarly, would recommend a more robust estimation and propagation of process error as part of the data assimilation approach itself [CITE raiho].
+## Oregon case study
 
-* Implications  (borrow text from CMS proposals)
-  * Improving MRV
-  * Recovery forecasting
-  * Disturbance nowcasting
-    * requires reducing temporal resolution
+The most obvious issue with the initial application of the Multinomial filter to real-world data was the high incidence of filter divergence -- of the model becoming overconfident in itself and thus diverging from the observations. 
+Filter divergence is not unique to this algorithm, but something that can occur in traditional filters as well. 
+Indeed, there's no reason to belive that filter divergence is any more common in the Multinomial filter than in more traditional filters, such as EnKF, because in the absence of disturbance the Multinomial filter behaves exactly as EnKF would. 
+The underlying causes of filter divergence are a result of either an underaccounting of model uncertainty or an overestimation of observation error in the data, both of which are likely at play in this example. 
+On the model side, forecast uncertainty is associated with five factors: initial condition uncertainty, driver uncertainty, parameter uncertainty, parameter heterogenity, and process error [@Dietze2017b]. 
+Since our goal here was a simple proof of concept, rather than a real world application, we did not formally account for uncertainty in model drivers (i.e., meteorology) or parameters. 
+Alternative meteorological driver data products exist that account for uncertainties, such as the ERA5 ensemble reanalysis product [@Hersbach2020], and methods exist for propagating the uncertainties associated with downscaling such regional data products [@Rollinson2017].
+Similarly, for actual carbon monitoring and forecasting we would recommend a more extensive multi-site Bayesian calibration so that parameter uncertainty can be propagated [@Fer2018; @Dietze2017a], preferably employing hierarchical approaches to also capture parameter heterogeneity (a.k.a. random effects), which can be substantial [@Fer2021].
+Likewise, we would recommend a more robust estimation and propagation of process error as part of the data assimilation approach itself [@Raiho2020].
+Ironically, the success of the existing model calibration at predicting AGB at our single calibration sites contributed to the underestimation of process error, since we failed to account for the uncertainties associated with extrapolating this single calibration to other sites across the landscape. 
+Given the strong topographic and climatic gradients of the central Cascades, landscape heterogeneity in model performance is likely nontrivial.
 
-* Future directions
+In addition to underestimating model uncertainty, the AGB data product we are using, which relies on a single fixed residual error estimate, is likely overestimating the observation uncertainty. 
+First, the assumption of constant variance is unlikely to be true because AGB is non-negative, which means the current interval estimates for low biomass sites include a substantial probability of negative biomass. 
+More often the uncertainties in AGB are heteroskedastic and increasing in absolute magnitude as AGB increases, a property shared with the allometeric models used to estimate AGB in the field calibration data [@Dietze2008]. 
+This heteroskedasticity particularly important for disturbance detection because it means we are likely significantly overestimating the observation error associated with low biomass (disturbed) conditions, contributing directly to the Multinomial model's inability to distinguish such biomass drops from observation error. 
+Second, the AGB data product is does not distinguish random versus systematic errors [@Cameron2022], and in particular is not accounting for the spatial and temporal autocorrelation in observation errors. 
+In reality, a site with higher than predicted AGB in one year is likely to have higher than predicted AGB the next year (positive temporal autocorrelation) and adjacent pixel are also likely to have higher than predicted AGB (positive spatial autocorrelation). 
+These positive autocorrelations mean we are likely overestimating the uncertainty associated with change detection, since a substantial portion of this systematic observation error should cancel out [@Kennedy2023].
+Overall, the failures of the default calibration, which ignored driver uncertainty, parameter uncertainty, and parameter heterogeneity while understimating process error and overestimating observation error, provide an illustrative case study in the care that must be taken when applying data assimilation approaches in general, and the Multinomial filter in particular, to real-world data
+
+In contrast to our "off-the-shelf" application of the Multinomial filter, our computational experiments demonstrated that when we increase the model uncertainty and reduce the observation uncertainty that we significantly reduced the rate of filter divergence and were able to reliably detect all but the smallest disturbance events. 
+Indeed, filter divergence declined, and disturbance detection increased, systematically as a function of the magnitude of the observation error. 
+Somewhat surprisingly the computational experiments suggested that the Multinomial filter tended to be more sensitive to observation error than to model error, and suggesting that applications should prioritize making sure that observation errors are correctly accounted. 
+Indeed, doing a better job at propagating model uncertainties correctly only becomes important once the observation errors are constrained.
+
+## Future Directions: Current algorithm
+
+
+
+It is also worth noting that, unlike in the simulated data experiment, our real-world application only relied on a single data constraint.
+If we had leveraged additional data constraints, such as LAI, we would have gained additional confidence in our ability to detect real disturbances, not just because LAI data products often have lower observation errors but because the addition of additional data reduces the overall observation error and the positive correlation between LAI and AGB would allow the assimilation algorithm to borrow strength indirectly (i.e. observations of LAI would help constrain AGB and observations of AGB would help constrain LAI). 
+In practice this is nontrivial because LAI data products based on different observations (e.g. MODIS) have a different spatial resolution, which would need to be addressed. 
+Alternatively, a data product based on LandSAT would have required additional development [e.g., @Zhang2023] and would need to account for the observation error covariance between the two products (i.e. errors in data products based on the same underlying spectra would not be independent). 
+
+* Lessons learned from computational experiments
+
+* OREGON: FUTURE DIR
+
+* multiple constraints
+    * also would benifit from more products (e.g. LAI)
+
+  * disturbance products are 'seeing' more than is in AGB product alone
+
   * Disturbance priors need to be spatially heterogenous and evolve temporally
     * Connect to state-and-transition literature
     * shared spatial information (e.g. dispersal kernels)
-  * Scaling up -> spatially implicit
-    * ED2
-    * Contagion
 
-* OREGON: FUTURE DIR
-  * disturbance products are 'seeing' more than is in AGB product alone
-    * also would benifit from more products (e.g. LAI)
+
+## Future Directions: Algorithm Development
+
   * would be good to add 'memory' to algorithm so further evidence of disturbance reinforces initial detection (similar to BLC); would allow reduction in time step and greater sensor fusion
 
 * Run just the Assimilation step for simulated disturbance that vary in magnitude, process error, observation error, etc to detect sensitivity
@@ -53,4 +77,47 @@ Leftover text from Methods:
         * how to handle updating of assignment based on new information?
       * SSMD - transition probabilities change with state
         * rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
+
+
+
+
+
+* Future directions
+
+  * Scaling up -> spatially implicit
+    * ED2
+    * Contagion
+  * Scaling up -> emulation
+    * Applied at scale full model would be both computationally prohibitive and highly redundant (similar sites, such as spatially adjacent, are going to have very similar inputs and output)
+    * run full Bayesian model for a subset of locations stratified by relevant variables (IC, observed data, possibly also met, soils, etc.)
+    * build ML emulator to predict outcome of full Bayesian model
+    * use ML emulator to predict full model; interpolate in env/obs space -> map to physical space
+
+* Issues
+  * Need a more detail exploration of rate of false pos/neg: affected by p.dist, R, Q, P0 -- how much do we need to simulate?
+  * Would like to add look-back capabilities (ensemble backward smoothing) to update assignments based on more recent info
+    * related: with multi-PFT need to check for, and protect against, long term PFT leakage
+  * Computational demand it high for problems with many grid cells
+    * Efficient (semi-)analytic approximations or LUT
+    * work at larger spatial scales and account for subgrid disturbance heterogeneity implicitly [@McCabe2019]
+  * Multisite needs a way of estimating $\rho$ by site with cross site correlations, rather than unique $\rho$ for all permutations
+    * for $\rho$ handle the covariances of nearby sites -- disturbance in one usually increases the probability of disturbance in others
+    * similarly, need to be able to compose Multisite $\mu_f$ and $P_f$, from individual site values with reasonable approximations of cross-[site x pool] correlations
+
+## Conclusion
+
+* Implications  (borrow text from CMS proposals)
+  * Improving MRV
+  * Recovery forecasting
+  * Disturbance nowcasting
+    * requires reducing temporal resolution
+
+
+
+
+
+
+
+
+
 
