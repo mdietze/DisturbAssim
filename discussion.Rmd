@@ -63,51 +63,29 @@ It's important to note that when using external disturbance data as priors we're
 Finally, it is worth nothing that relying on processed-based models and external disturbance data products are not mutually exclusive.
 The fusion of disturbance products and disturbance models could be part of the future development of the Multinomial filter itself (see next subsection), but may be simpler to handle as part of the prior construction. For example, one could start with the models as priors and then update these using one or more disturbance product observations [e.g., using the Bayesian Updating of Land Cover (BULC) algorithm, @CARDILLE2016; @Crowley2019] and then use these posteriors as the priors in the data assimilation.
 
-
 ## Future Directions: Computational challenges
 
-* Analytical approximation of sequential beta-binomial then KF vs full joint model
+One of the challenges in scaling up the Multinomial filter is the computational cost involved. Unlike a traditional EnKF, the Analysis step of the data assimilation does not have a full analytically solution, and instead needs to be evaluated numerically, for example through standard Bayesian MCMC approaches as was done in this paper. 
+However, MCMC is too computationally costly to apply using brute force on anything larger than an individual landscape. Here we discuss two possible approximations to the full algorithm, one analytical and the other based on model emulation. 
+Analytically, instead of solving the full Multinomial filter jointly, it may be possible to approximate the full model by decompose the filter sequentially. 
+First, one would analytically apply EnKF to each alternative disturbance state, analytically generating independent posteriors for each $X^L_t$.
+Next, one would then apply a Dirlichet-Multinomial model to the problem of updating $\vec{\rho_t}$, treating $X^L_t$ as known rather than jointly estimated. The math for this approach has yet to be fully flushed out, and it remains to be seen how well this approximation works in practice and what information would be lost by solving the model conditionally rather than jointly.
 
-* Scaling up -> emulation
-    * Applied at scale full model would be both computationally prohibitive and highly redundant (similar sites, such as spatially adjacent, are going to have very similar inputs and output)
-    * run full Bayesian model for a subset of locations stratified by relevant variables (IC, observed data, possibly also met, soils, etc.)
-    * build ML emulator to predict outcome of full Bayesian model
-    * use ML emulator to predict full model; interpolate in env/obs space -> map to physical space
-
+An alternative to analytical approximation is to rely on machine learning approaches to build an emulator (a.k.a. surrogate model) [CITE]. While emulators are often used to approximate process-based models, predicting what the model would have output given a set of inputs, here we want to construct an emulator to that Analysis step, predicting what the Multinomial filter would output (probability of disturbance, ecosystem pool means and variances) as a function of the Forecast model state and the observed data constraints. ** Find citations for papers that have emulated other SDA**. Emulators addresses not only the computational cost of scaling up but also the observation that similar sites are going to make similar predictions (e.g., adjacent LANDSAT pixels), and thus fully gridded models are going to perform highly redundant calculations. Emulators still require running the model and analysis (in this case the Multinomial filter), but rather than evaluating every location the filter is run for a subset of locations stratified by relevant variables (initial conditions, observed data constraints, and posssibly also covariates like climate, soils, etc.). Flexible machine learning approaches are then used to build an emulator that predicts the outcome of full Bayesian model. For places where the full models was not run the emulator is then used to predict the full model, which in essence involves interpolating in environmental space and mapping this back to physical space.
 
 ## Future Directions: Algorithm Development
 
-  * Multisite needs a way of estimating $\rho$ by site with cross site correlations, rather than unique $\rho$ for all permutations
-    * for $\rho$ handle the covariances of nearby sites -- disturbance in one usually increases the probability of disturbance in others
-    * similarly, need to be able to compose Multisite $\mu_f$ and $P_f$, from individual site values with reasonable approximations of cross-[site x pool] correlations
+In this final section we discuss three future directions for improving upon the Multinomial filter: accounting for space when estimating the probability of disturbance, $\vec{\rho_t}$; adding memory to the algorithm to be able to better detect disturbance occurrence and type; and scaling up using spatially implicit approaches that track fractional area.
 
-* would be good to add 'memory' to algorithm so further evidence of disturbance reinforces initial detection (similar to BLC); would allow reduction in time step and greater sensor fusion
-  * example case: initially overlapping but diverge
-  * Would like to add look-back capabilities (ensemble backward smoothing) to update assignments based on more recent info
+In terms of spatial disturbance probability, the current filter does estimate a whole vector of probabilities, one for each site, and thus estimates will include a posterior covariance structure across sites, but the mdoel is not written in a way that explicitly changes the probability of disturbance based on spatial adjacency. In practice, almost all types of disturbance involve some degree of shared risk, if not true spatial contagion, whereby a disturbance at one site usually increases the probability of disturbance in near-by sites. Accounting for this could be done by adding a hierarchical layer to the estimation of $\rho$ that includes a spatial covariance structure. Because $\rho$ is bound between zero and one, this could be done by including a link function (e.g., logit) and modeling the covariance as a multivariate Normal with a standard distance-dependent covariance model (e.g., exponential, Gaussian, Matern) [@Banerjee2014]. In practice, estimating larger spatial covariance matrices is computationally demanding and often more efficiently approximated using spatial basis functions and random effects [@Wikle2019].
 
-* PFT switching
-      * mention parallel PFT ensembles
-      * need to protect against long-term PFT leakage; related to more general need to "look back"
+As for the idea of incorporating memory into the Multinomial filter, one limitation of the existing approach is that (like most data assimilation filters) it is strictly Markovian - states are updated solely based on the current model state and current observations. Imagine the case where an anomalously low value is observed for AGB but at the next time point AGB returns to normal. At the time that the low observation is made it may trigger the Multinomial filter to predict a high probability of disturbance, but after the next observation becomes available it becomes much more likely that the low value was simply observation error. In this case what we want is the ability not just to restore the AGB to the undisturbed state, but also to jump back to the previous observation and assign it to be undisturbed as well. As another example, imagine the case where a disturbance does occur but the observations are compatible with multiple types of disturbance (e.g., clear cut versus conversion to agriculture). The algorithm may assign both a 50/50 probability at that time point, and then at the next time point it may update that assignment based on new information (e.g., the new year's vegetation is herbaceous). Rather than interpreting the 50% probability assigned to clear cut as a new transition at the second time point, what we'd really like to do is jump back in time and say, based on new information, that we're now much more confident that the original disturbance was agricultural conversion. Furthermore, because some PFT transitions are not easily reversible (e.g., a grassland cannot shift to a mature forest in one year), this capability to look back would also help protect against the risk that assigning a non-zero probability to a PFT transition could cause more and more of the ensemble to "leak" into that state. Implementing this "memory" feature is more challenging, as it requires writing a statistical model that accounts for multiple points in time and more complex multi-temporal disturbance state scenarios, as well as the informatics pipelines to save previous states and restart model ensembles from an earlier point in time. 
 
-
-
-* Scaling up -> spatially implicit
-  * work at larger spatial scales and account for subgrid disturbance heterogeneity implicitly 
-    * ED2
-    * Contagion [@McCabe2019]
-
-
-
+The final potential algorithm improvement would be to adopt a spatially implicit approach to tracking disturbance. Spatially implicit approaches are a common feature of global vegetation models, which might represent a larger (e.g. 1-by-1 degree) grid cell as containing multiple vegetation types, each with a fractional area, rather than keeping track of where in each grid cell those vegetation types are located. A subset of these models also keep track of both disturbance events and time since disturbance (a.k.a. patch age) in this way, updating fractional areas dynamically. Many of these models are derived from the size-and-age-structured (SAS) approximation introduced in the Ecosystem Demography (ED) model [@Moorcroft2001]. The idea is that if you consider a patch of vegetation of a specific age and vegetation type, a disturbance might only affect part of the patch, which would cause it to split into two patches (disturbed and undisturbed) each with a new fractional area. If this pattern were repeated over time the number of patches would increase exponentially over time, so ED also implements a patch fusion scheme that merges older patches back together when they are judged to have converged to equivalent states. More recently, @McCabe2019 proposed a way to account not just for fractional area but also patch adjacency using a spatially implicit approach, allowing for the model to better account for spatial contagion and the distribution of patch sizes. Conceptually, the disturbance data assimilation approach we've presented here should be able to be updated to keep track of fractional areas of disturbance instead of a discrete disturbed/undisturbed state, for example by adopting a Dirlichet data model instead of a Multinomial.
 
 ## Conclusion
 
-* Implications  (borrow text from CMS proposals)
-  * Improving MRV
-  * Recovery forecasting
-  * Disturbance nowcasting
-    * requires reducing temporal resolution
-
-
+Over the course of this paper we discussed the potential advantages of model-data assimilation for improving MRV of the terrestrial carbon cycle, the importance of disturbance to carbon MRV, and the limitations of current data assimilation algorithms to account for disturbance. We then derived a new data assimilation algorithm, the Multinomial filter, based on the idea of accounting for the discrete nature of disturbance, and demonstated the ability of this algorithm to capture a range of simulated and real-world disturbances. We then discussed ways that this algorithm could be further improved. Overall, the Multinomial filter has the potential to improve not only MRV but also the near real-time disturbance detection, with important implications at scales from national (UN reporting) down to local (natural climate solutions). By allowing a more realistic representation of disturbance in process-based models, the algorithm also opens the door to the incorporation of ecosystem recovery forecasts, making possible more informed and efficient management of post-disturbance recovery.
 
 
 
