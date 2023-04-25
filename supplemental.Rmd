@@ -1,5 +1,27 @@
 # Supplemental material
 
+## VSEM Calibration: Methods
+
+VSEM was calibrated primarily using data from 2002-2019 from the Ameriflux site US-ME2 (lat.lon), a mature Ponderosa pine stand located within our study region. VSEM pools (leaf, wood, and soil C) were initialized using the earliest available site-specific data from the Ameriflux BADM (Biomass, Ancillary, Disturbance, Management) dataset. An additional ten years of leaf and wood biomass data were also available from the BADM, which we included as part of the calibration dataset. Also included was the cumulative annual tower NEE (2002-2019). Because we were working with annual data we assumed Normal likelihoods for all three response variables, and because our priority was the correct prediction of aboveground biomass we upweighted the wood likelihood by 4 and downweighted the NEE likelihood by 1/4. 
+
+Prior to calibration we set the leaf area ratio (LAR) to 15.7 m2/kgC and leaf residence time (tauL) to 4.7 years based on data from the BADM and left the light extinction coefficient (KEXT) at its default (0.5). The remaining fit parameters were the light use efficiency (LUE), the fraction of GPP allocated to autotrophic respiration (GAMMA), the fraction of NPP allocated to leaves (Av), the wood and soil C residence times (tauW, tauS), and the residual standard deviations for each of our data constraints (sd_NEE, sd_leaf, sd_wood). Fitting was done via Maximum Likelihood using base R's `optim` function. Finally, because the process error within a dynamical data assimilation system is not identical to the calibration residual error, we estimated the leaf and wood process errors (Ql, Qw) based on the difference between the predicted and observed net annual changes in each of these pools. Because there was not an equivalent annually-observed soil carbon dataset, the soil carbon process error (Qs) was estimated based on the predicted mean annual rate of change under the simplifying assumption that the true soil carbon is in steady-state (i.e. any change in modeled soil C was assumed to be an error).
+
+## VSEM Calibration: Results
+
+Prior to applying the VSEM to simulate the conifer forest carbon cycle in Oregon the model was calibrated against AGB, leaf C, and NEE data from AmeriFlux site US-ME2.  Best fit parameters are given in Supplemental Table \@ref(tab:parameters). The best fit to the observed data was for AGB, which had a $R^2$ of 0.977, a RMSE of 0.089 $kgC/m^2$ (1.7%), and a bias of -1.1% (-0.059 $kgC/m^2$) (Supplemental figure \@ref(fig:calibration) ). Achieving this fit came at the cost of nontrivial systematic biases in both leaf carbon (0.064 $kgC/m^2$, 13%) and NEE (0.528 $kgC/m^2/year$, 69%). The RMSEs for leaf carbon (0.067 $kgC/m^2$, 13.6%) and NEE (0.612 $kgC/m^2/year$, 80%) were similar to the biases, suggesting that most of the model error was systematic, particularly for leaf carbon.
+
+The dynamic process errors for the leaf, wood, and soil pools, which were approximated as the RMSE of the _change_ in each pool each year, were 0.01, 0.03, and 0.15 $kgC/m^2/yr$. This represents a dynamic error of 2.1%, 0.6%, and 0.7% respectively relative to the size of the pool and a CV of 114% and 17% for leaf and wood relative to the observed annual biomass increment.
+
+Overall, while the inability of the calibration to capture multiple data constraints simultaneously does suggest room for improvement in the underlying model (@Cameron2022), the model performed well for our target variable (AGB) and appears adequate for the job of testing the Multinomial model against real AGB data for a range of different disturbance events.
+
+```{r paramTable,echo=FALSE}
+# load("fit.RData")
+# varName = c(names(theta),"Ql","Qw","Qs")
+# varName[c(5,7)] = c("tauL","tauW")
+# paramTable = data.frame(varName,fit=format(c(theta,Ql,Qw,Qs),digits=3,scientific=TRUE))
+# knitr::kable(paramTable, caption = "VSEM parameter estimates")
+```
+
 
 ```{r calibration, echo=FALSE, fig.asp=1.25, fig.cap="Predicted and observed woody biomass, leaf biomass, and NEE at US-Me2"}
 load("fit.RData")

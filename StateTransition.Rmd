@@ -38,7 +38,8 @@ rat <- levels(cov04)[[1]]
 nlcd <- FedData::pal_nlcd()
 colnames(nlcd)[2] <- "ID"
 nlcd$ID = as.numeric(nlcd$ID)
-rat = dplyr::left_join(rat,nlcd,by="ID")
+#rat = dplyr::left_join(tibble::tibble(rat),nlcd,by="ID")
+rat = nlcd[as.integer(nlcd$ID) %in% rat$ID,]
 levels(cov04) <- rat 
 cov04 = deratify(cov04,"description")
 cov04 <- raster::projectRaster(cov04,crs=crs("+proj=longlat +datum=WGS84"))
