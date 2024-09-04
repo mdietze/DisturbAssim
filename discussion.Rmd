@@ -10,7 +10,7 @@ From a disturbance detection perspective, three things set the Multinomial assim
 ## Oregon case study
 
 The most obvious issue with the initial application of the Multinomial filter to real-world data was the high incidence of filter divergence -- of the model becoming overconfident in itself and thus diverging from the observations. 
-Filter divergence is not unique to this algorithm, but something that can occur in traditional filters as well. 
+Filter divergence is not unique to this algorithm, but something that can occur in traditional filters as well [@kalnay2003; @lewis2006]. 
 Indeed, there's no reason to believe that filter divergence is any more common in the Multinomial filter than in more traditional filters, such as EnKF, because in the absence of disturbance the Multinomial filter behaves exactly as EnKF would. 
 The underlying causes of filter divergence are a result of either an underaccounting of model uncertainty or an overestimation of observation error in the data, both of which are likely at play in this example. 
 
@@ -48,7 +48,7 @@ This was not done in this example because data products based on different obser
 Another way to leverage additional data constraints would be to bring in observation of different pools, such as LAI, which often has lower observation errors.
 In addition to the direct increase in data volumes, the positive correlation between model predicted LAI and AGB would allow the assimilation algorithm to borrow strength indirectly (i.e. observations of LAI would help constrain AGB and observations of AGB would help constrain LAI). 
 Existing LAI data products [e.g., MODIS, @yan2016] have the same spatial mismatch issue discussed above.
-Alternatively, a data product based on LandSAT would be at the same resolution but would have required additional development [e.g., @Zhang2023] and would need to account for the observation error covariance between the two products (i.e. errors in data products based on the same underlying spectra would not be independent). 
+Alternatively, a data product based on Landsat would be at the same resolution but would have required additional development [e.g., @Zhang2023] and would need to account for the observation error covariance between the two products (i.e. errors in data products based on the same underlying spectra would not be independent). 
 In addition to bringing in additional data constraints on different pools, we could also constrain our disturbance estimates using observations on different ecosystem fluxes and processes, such as eddy covariance (carbon, water, and energy fluxes), solar induced fluorescence (a proxy for gross primary productivity), and thermal imaging (a proxy for water stress and evapotranspiration).
 
 In addition to constraining our estimates of disturbance through the ecosystem state variables, we could also improve our disturbance probability priors. 
