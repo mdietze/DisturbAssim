@@ -1,0 +1,769 @@
+---
+title: "OR Multi Disturbance, NIMBLE version w/ Wishart"
+author: "Michael Dietze"
+date: "2024-05-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("disturbance.R")
+source("multi.ens.adj.R")
+library(BayesianTools)
+library(nimble)
+```
+
+## set up
+```{r}
+## Load extracted site timeseries
+load("extract.h03v04.RData")
+
+## Load disturbance rate, state&transition, disturbed biomass stats
+load("STprior.RData")
+dtime = 1985:2012
+colnames(dextract) <- paste0("t",dtime)
+dextract[is.na(dextract)] <- 0
+d.prior["0"] = d.prior["0"] + d.prior[6]  ## change at runtime (removes <NA>)
+d.prior = d.prior[-6]
+
+
+## Load Calibration
+load("fit.RData")
+Qsoil = Qs
+```
+
+## drivers
+```{r}
+latlon = points@coords
+metFile = "daymet.RData"
+if(file.exists(metFile)){
+  load(metFile)
+} else {
+  dm = list()
+  for(i in 1:nrow(latlon)){
+    dm[[i]] = daymetr::download_daymet(site="h03v04",latlon[i,2],latlon[i,1],start=1985,end=2017,internal=TRUE,simplify=TRUE)
+  }
+  save(dm,file=metFile)
+}
+
+## extract Shortwave and convert to daily PAR
+SW2PAR = 0.45
+srad = subset(dm[[1]],measurement == "srad..W.m.2.")   
+metTime <- as.POSIXct(paste(srad$year,srad$yday,sep="-"),format="%Y-%j")
+rad <- matrix(NA,length(dm),length(metTime))
+for(i in seq_along(dm)){
+  srad = subset(dm[[i]],measurement == "srad..W.m.2.")   
+  rad[i,] = srad$value*1e-6*86400*SW2PAR  # -> MJ /m2 /day PAR
+}
+plot(metTime,rad[1,],type='l')
+## plot(date,PAR,col=2) ## calibration data
+```
+
+## functions
+```{r,echo=FALSE,results='hide',message=FALSE}
+##' Single Site, Single Disturbance
+##' @param Y observed data
+##' @param R observation error
+##' @param Q process error
+##' @param Xic state initial condition matrix
+##' @param THETA parameter matrix
+##' @param dist  disturbance list: p.dist[1:NT], mu0[3], V0[3,3], alloc soil 
+SSSD.model <- function(Y,R,Q,PAR,Xic,THETA,dist,restart=FALSE){
+  
+  uni = TRUE
+  
+  ## init
+  NT = length(PAR)/365
+  Nf = Nmu = Na = Xic
+  ne = nrow(Xic)
+  if(!is.matrix(THETA)) THETA = matrix(THETA,nrow=ne,ncol=length(THETA),byrow = TRUE)
+  Forecast = Analysis = list()
+  bq.stored <- rep(NA,NT)
+  bq.stored[1] <- ifelse(uni,1,4)
+  if(uni){
+    aq.stored <- rep(NA,NT)
+    aq.stored[1] <- Q[3,3]*bq.stored[1]
+  } else {
+    aq.stored <- array(NA, c(NT,3,3))
+    aq.stored[1,,] <- Q*bq.stored[1]
+  }
+  t0 = 1
+
+  ## restart
+  if(restart){
+    load("test.RData")
+    Na = Analysis[[t]]$Na
+    t0 = t
+  }
+  
+  AnalysisSSSDMP.uni <- nimble::nimbleCode({  ## univariate constraint
+    # Prior
+    muN[1:N] ~ dmnorm(mufN[1:N],prec=pfN[1:N,1:N]) ## forecast prior on Not disturbed
+    muD[1:N] ~ dmnorm(mufD[1:N],prec=pfD[1:N,1:N]) ## forecast prior on Disturbed
+    D ~ dbern(prob=p)                         ## disturbance probability
+    q ~ dgamma(bq,aq) ## wishart prior precision 
+    ## Likelihood
+    n[1:N] <- D*muD[1:N] + (1-D)*muN[1:N]     ## select between disturbed and undisturbed
+    X ~ dnorm(n[H], 1/sqrt(q))                ## add process error  
+    Y ~ dnorm(X,R)                            ## Observation error
+  })
+  
+    AnalysisSSSDMP <- nimble::nimbleCode({
+    # Prior
+    muN[1:N] ~ dmnorm(mufN[1:N],prec=pfN[1:N,1:N]) ## forecast prior on Not disturbed
+    muD[1:N] ~ dmnorm(mufD[1:N],prec=pfD[1:N,1:N]) ## forecast prior on Disturbed
+    D ~ dbern(prob=p)                         ## disturbance probability
+    q[1:N, 1:N]  ~ dwish(R = aq[1:N, 1:N], df = bq) ## wishart prior precision
+    ## Likelihood
+    n[1:N] <- D*muD[1:N] + (1-D)*muN[1:N]     ## select between disturbed and undisturbed
+    #X[1:N]  ~ dmnorm(n[1:N], prec = q[1:N, 1:N])  ## add process error
+    X  ~ dnorm(n[H], 1/sqrt(q[H, H]))  ## add process error  ## HACK
+    #if(NY == 1){
+    #  Y ~ dnorm(X[H],R)                        ## Observation error
+    Y ~ dnorm(X,R)                        ## Observation error ## HACK
+    #} else {
+    #  for(i in 1:NY){                            
+    #    ns[i] <-X[H[i]]                        ## Observation operator
+    #  }
+    #  Y[1:NY] ~ dmnorm(ns[1:NY],R[1:NY,1:NY])    ## Observation error
+    #}
+  })
+  
+  for(t in t0:NT){
+    
+    ## update IC
+    THETA[,9:11]  <- Na    ## Multinomial
+
+    ## Forecast 
+    for(i in 1:ne){
+      tsel    = (t-1)*365 + 1:365             ## Select days from driver files
+      Nf[i,] = VSEM(THETA[i,], PAR = PAR[tsel])[365,2:4] ## deterministic simulation
+      ##Nf[i,]  = mvtnorm::rmvnorm(1,Nmu[i,],Q) ## process error
+      ## Nimble Wishart version handles process error internally
+    }
+    
+    ## Disturbance
+    d.forecast <- rep(0,ne); d.forecast[1:ceiling(ne*0.1)] <- 1 #rbinom(ne,1,dist$p.dist)             ## prior on disturbance status
+    sel <- !as.logical(d.forecast)                ## select undisturbed ensemble members
+    if(sum(!sel)>2){
+      sel.dist = which(!sel)
+      for(j in sel.dist){                      ## run disturbance model
+        Nf[j,]  = disturbance.p(Nf[j,],mu0=dist$mu0,V0 = dist$V0,alloc.soil = dist$alloc.soil)
+      }
+      mufD  = colMeans(Nf[!sel,])
+      pfD = try(solve(var(Nf[!sel,])))#solve(diag(c(0.15,0.5,0.25)^2))
+    } 
+    if(sum(!sel) <= 2 || "try-error" %in% class(pfD)) {   ## backup values if the ensemble stats fail
+      mufD = c(dist$mu0[1], mean(Nf[,2]),  dist$mu0[2])            
+      pfD  = solve(diag(c(0.15,0.5,0.25)^2))
+    }
+    mufN  =colMeans(Nf[sel,])
+    varfN = var(Nf[sel,])
+    tooSmall = which(diag(varfN)/mufN < 0.001)
+    for(jj in seq_along(tooSmall)){
+      varfN[tooSmall[jj],tooSmall[jj]] = mufN[tooSmall[jj]]*0.001
+    }
+    pfN   = solve(varfN)
+    #if("try-error" %in% class(pfD)){
+    #  stop()
+    #}
+    Nf <- tobit(Nf)
+    
+    ## priors
+    aq = ifelse(uni,aq.stored[t],aq.stored[t,,])
+    priors <- list(p    = dist$p.dist[t],       ## disturbance rate
+                   mufN = mufN,   ## Not disturbed forecast means
+                   mufD = mufD,                 ## Disturbed forecast means
+                   pfN  = pfN,                  ## Not disturbed forecast precision
+                   pfD  = pfD,                  ## Disturbed forecast precision
+                   aq   = aq,                   ## prior sum of squares
+                   bq   = bq.stored[t]          ## prior sample size
+    )
+    Forecast[[t]] <- c(list(d.forecast=d.forecast,Nf=Nf),priors)
+    
+    ## Analysis
+    update = c(list(Y=Y[t,3],         ## Data                #### HACK
+                    R=solve(R)[3,3]), ## Observation error   #### HACK
+                    priors)
+    constants = list(N=3,                      ## number of state variables
+                     H = as.vector(which(!is.na(Y[t,]))))  ## observation vector
+    constants$NY = length(constants$H)
+    if(constants$NY > 0){ ## data observed, run filter
+      mod <- nimble::nimbleModel(code = AnalysisSSSDMP.uni, 
+                                 data = update, 
+                                 constants=constants)
+      conf <- nimble::configureMCMC(mod, print=FALSE)
+      conf$addMonitors(c("X","n","D","q"))   #,"muN","muD"
+      conf$printSamplers()
+      Rmcmc <- nimble::buildMCMC(conf)
+      Cmodel <- nimble::compileNimble(mod)
+      Cmcmc <- nimble::compileNimble(Rmcmc, project = mod, showCompilerOutput = FALSE)
+      dat  <- nimble::runMCMC(Cmcmc, niter = 10000, 
+                               nburnin = 3000, thin = 1, 
+                               nchains = 3,samplesAsCodaMCMC = TRUE)
+    
+      ## update parameters & save Analysis posterior
+      dat = as.matrix(dat)
+      nsel <- grep(pattern="^n",x=colnames(dat))
+      xsel <- grep(pattern="^X",x=colnames(dat))
+      if(uni){
+        Xa = dat[,nsel]
+        Xa[,3] = dat[,xsel]
+      } else {
+        Xa = dat[,xsel]
+      }
+      ca = dat[,"D"]
+      ## update Wishart
+      iq   <- grep("q", colnames(dat)) # 9 =3*3 (mean of those columns to generate a vector of 9)
+      mq <- dat[, iq]  # Omega, Precision
+      dim.q <- sqrt(length(iq))
+      if(uni){
+        q.bar = mean(mq) ## currently all 1 very small #
+      } else {
+        q.bar <- matrix(apply(mq, 2, mean), dim.q, dim.q)  # Mean Omega, Precision
+      }
+      col <- matrix(1:dim.q ^ 2, dim.q, dim.q)
+      WV  <- matrix(0, dim.q, dim.q)
+      if(uni){
+        WV = q.bar/var(mq)
+      }else{
+        wish.df <- function(Om, X, i, j, col) { # degrees of freedom function  
+          (Om[i, j]^2 + Om[i, i] * Om[j, j]) / stats::var(X[, col])
+        }
+        for (ii in seq_len(dim.q)) {
+          for (jj in seq_len(dim.q)) {
+            WV[ii, jj] <- wish.df(q.bar, X = mq, i = ii, j = jj, col = col[ii, jj])
+          }
+        }
+      }
+      mean.WV <- mean(WV)
+      if (mean.WV < dim.q) {
+         mean.WV <- dim.q
+      }
+      V <- solve(q.bar) * mean.WV
+      if(uni){
+        aq.stored[t+1]       <- V
+      } else {
+        aq.stored[t + 1, , ] <- V
+      }
+      bq.stored[t + 1]       <- mean.WV
+      
+      run.adjustment = TRUE
+    } else {
+      Xa = Nf
+      ca = 1
+      run.adjustment = FALSE
+    }
+#hist(1/sqrt(mq))
+    
+      ## draw new IC
+    if(run.adjustment){
+    Na <- multi.ens.adj(
+      Xf   = Nf,
+      cf   = d.forecast,
+      mu.f = rbind(priors$mufN,priors$mufD),
+      Pf   = abind::abind(solve(priors$pfN),
+                            solve(priors$pfD),
+                            along=3),
+      Xa = Xa,
+      ca = ca)
+    } else {
+      Na = cbind(rep(0,nrow(Nf)),Nf)
+    }
+    Ca <- Na[,1] ## updated classf assignments
+    Na <- tobit(Na[,-1])
+    #  sel.ic <- sample.int(nrow(dat), ne, replace=TRUE)
+    #  Na <- dat[sel.ic,nsel]
+    Analysis[[t]] <- list(Na = Na,
+                          Ca = Ca,
+                          CI = apply(dat,2,quantile,c(0.025,0.25,0.5,0.75,0.975)),
+                          mu = apply(dat,2,mean,na.rm=TRUE)
+    )
+    save(Forecast,Analysis,aq.stored, bq.stored,
+         t,Y,R,Q,PAR,THETA,dist,file="test.RData")
+    # test = list(Forecast=Forecast,Analysis=Analysis,aq=aq.stored,bq=bq.stored)
+  }
+  return(list(Forecast=Forecast,Analysis=Analysis,aq=aq.stored,bq=bq.stored))
+}
+```
+
+
+
+
+## initial conditions & observations
+```{r}
+## BIOMASS
+B2C = 0.5 ##biomass to carbon ratio
+Yw <- bextract*B2C*1000*1e-4 ## convert Mg/ha  to  kg C 
+Rw <- (84*B2C*1000*1e-4)^2 ## Observation Error: Kennedy et al 2018 Environ. Res. Lett. 13 025004; Fig 2 RMSE
+## units: Mg/ha -> kg/m2
+
+## grab the distribution of AGB for the first time point from all pixels
+AGBprior <- Yw[,1]
+ne = length(AGBprior) ## number of ensemble members
+
+## spin up
+PARlong <- as.vector(t(rad))
+spin = VSEM(theta,PARlong)
+thin = seq(nrow(spin)/2,nrow(spin),length=ne)
+spinIC = spin[thin,2:4]
+#for(i in 2:4){
+#  hist(spin[thin,i],type='l')
+#}
+
+## disturbance recovery trajectory
+nNBG = 200 ## years
+NBG <- array(NA,c(ne,nNBG,3))
+for(i in 1:ne){
+  param = theta
+  param[9:11] <- spinIC[i,]*c(0.01,1,0.01) ## set leaf and wood to 1%
+  raw = VSEM(param,PARlong[1:(nNBG*365.25)])
+  NBG[i,,] = raw[round(seq(365,nNBG*365.25,length=nNBG)),2:4]  ## grab pools at the end of each year
+}
+  
+## for each AGBprior, grab the matching leaf and soil
+ICprior <- matrix(NA,ne,3)
+age = rep(NA,ne)
+for(i in 1:ne){
+  age[i] <- which.min((AGBprior[i]-NBG[i,,3])^2)  
+  ICprior[i,] <- c(NBG[i,age[i],1:2],AGBprior[i])
+}
+hist(age)
+colnames(ICprior) <- c("Cv","Cs","CR") 
+pairs(ICprior)
+  
+```
+
+
+## analyze sites - just one disturbance
+```{r}
+Rmult = c(1,0.1,0.01,0.001)
+Qmult = c(1,10)
+Pmult = c(1)
+Ri = 1
+Qi = 1
+Pi = 1
+users_accuracy = c(1-d.prior[1],.77,.92,.77,.78,.78) #Kennedy et al 2015 table 6
+## 0 = none, 10 = other, 20 = cut, 30 = road, 40 = fire, 50 = biotic
+od = c(83:176,264:356)
+for(i in 181:280){
+  ofile = paste0("OR_NDP_",  ## N = Nimble, DP = Disturbance Prior
+                 formatC(i, width = 3, format = "d", flag = "0"),
+                 "_P",Pi,"Q",Qi,"R",Ri,".RData")
+  print(ofile)
+  if(file.exists(ofile)) next
+  NT = floor(ncol(rad)/365)
+  Yi = matrix(NA,NT,3)  ## observed data
+  Yi[1:ncol(Yw),3] = Yw[i,]  ## only Cw observed
+  R = diag(rep(Rw,3))*Rmult[Ri]    ## observation error
+  Q = diag(c(Ql,Qsoil,Qw)^2)*Qmult[Qi]  ## process error
+  dtype = which(names(d.prior) == dextract[i,"t2004"])
+  if(dtype == 1) dtype = sample(2:5,1) ## if site is undisturbed, set alternative at random
+  if(length(dtype)==0) break
+  p.dist = rep(d.prior[dtype]*Pmult[Pi],NT) ## set background rate
+  has.dist = which(dextract[i,] > 0)
+  p.dist[has.dist] = users_accuracy[dextract[i,has.dist]/10 + 1] 
+  dist <- list(              ## disturbance parameters
+    #p.dist = d.prior[dtype]*Pmult[Pi],     ## disturbance probability
+    p.dist = p.dist,
+    mu0 = c(0.2,PBBAR[4,dtype]),   ## % retention [leaf,agb], first parameter made up, should include soil
+    V0 =  diag(c(0.15,PBVAR[4,dtype])^2), #variance in retention
+    alloc.soil = 0.05        ## made up  
+  )
+  test = SSSD.model(Y = Yi,R=R,Q=Q,
+                  PAR=rad[i,],Xic=ICprior,THETA=theta[1:11],
+                  dist = dist)
+  save(test,dist,file=ofile)
+  print(test$Analysis[[20]]$mu)
+}
+```
+
+
+## visualization
+```{r}
+i = 181#181
+ofile = paste0("OR_DP_",  ## DP = Disturbance Prior
+                 formatC(i, width = 3, format = "d", flag = "0"),
+                 "_P",Pi,"Q",Qi,"R",Ri,".RData")
+load(ofile)
+NT = floor(ncol(rad)/365)
+Yi = matrix(NA,NT,3)  ## observed data
+Yi[1:ncol(Yw),3] = Yw[i,]  ## only Cw observed
+pool.names=c("Cleaf","Csoil","Cstem")
+for(i in 1:3){
+  
+    #CI.Na = sapply(X = test$Analysis,function(x){
+    #  y = x$CI
+    #  sel.n = which(colnames(y) == paste0("n[",i,"]"))
+    #  y[,sel.n]
+    #})
+    CI.Na = sapply(X = test$Analysis, function(x){
+      quantile(x$Na[,i],c(0.025,0.25,0.5,0.75,0.975))
+    })
+    
+    CI.D = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("D"))
+      y[,sel.n]
+    })
+
+    CI.Nf = sapply(X = test$Forecast, function(x){
+      mu = x$mufN[i]
+      sd = 1/sqrt(x$pfN[i,i])
+      return(mu + c(-1.96,0,1.96)*sd)
+    })
+    
+  plot(Yi[,i],
+       ylim = range(c(range(c(range(CI.Na),Yi[,i]),na.rm=TRUE),0)),
+       type='n',
+       ylab=pool.names[i],xlab="time")
+  ecoforecastR::ciEnvelope(1:ncol(CI.Nf),CI.Nf[1,],CI.Nf[3,],col=ecoforecastR::col.alpha("blue",0.5))
+  ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[5,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
+  lines(CI.Na[3,],col="#b2df8a",lwd=2,type='b',pch=18)
+  points(Yi[,i])
+  lines(CI.D[3,])
+  if(ncol(CI.Na)==1){
+    points(c(1,1),c(CI.Na[1,],CI.Na[5,]),pch="-",col="#b2df8a")
+    points(c(1,1),c(CI.Nf[1,],CI.Nf[3,]),pch="-",col="blue")
+    points(1,CI.D[3,],pch=17)
+  }
+  
+  
+}
+
+## process error
+plot(test$bq, main="bq")
+plot(test$aq, main="aq")
+q = sapply(X = test$Analysis,function(x){
+      y = x$mu["q"]
+    })
+plot(q)
+plot(1/sqrt(q))
+```
+
+ TODO:
+ * why is filter divergence such a problem even prior to disturbance and with prescribed disturbance probabilities?
+
+## postprocessing
+
+```{r}
+## Detect set of experiments that have been run
+runs <- dir(pattern="*.RData")
+runs <- runs[grepl("^OR_DP",runs)]
+exp = sapply(strsplit(runs,"_",fixed=TRUE),function(x){
+  sub(".RData","",x[4],fixed = TRUE)
+})
+exps <- unique(exp)
+
+## load experiments that haven't yet been summarized
+# eDPlist <- list()   ## run once
+t04 = 15            ## time of disturbance assessement (2004)
+tlo = 28            ## time of last observation
+for(i in seq_along(exps)){
+  if(is.null(eDPlist[[exps[i]]])){
+    esel <- which(exp==exps[i])
+    distrate = rep(NA,nrow(dextract))
+    divergence = predist = distsize = matrix(NA,nrow(dextract),6) ## pre and post disturbance biomass pools (w/uncertainty)
+    for(j in seq_along(esel)){
+      ## load file
+      load(runs[esel[j]])
+      k = as.numeric(unlist(strsplit(runs[esel[j]],"_",fixed=TRUE))[3])
+
+      ## extract detection rate
+      distrate[k]=test$Analysis[[t04]]$mu["D"]
+
+      ## capture of disturbance change
+      predist[k,1]    = test$Analysis[[t04-1]]$mu["n[3]"]
+      predist[k,2:6]  = test$Analysis[[t04-1]]$CI[,"n[3]"]
+      distsize[k,1]   = test$Analysis[[t04]]$mu["n[3]"]
+      distsize[k,2:6] = test$Analysis[[t04]]$CI[,"n[3]"]
+      
+      ## Filter divergence
+      divergence[k,1]   = test$Analysis[[tlo]]$mu["n[3]"]
+      divergence[k,2:6] = test$Analysis[[tlo]]$CI[,"n[3]"]
+    } ## end loop over individual runs
+    
+    eDPlist[[exps[i]]] = list(distrate=distrate,predist=predist,
+                            distsize=distsize,divergence=divergence)
+    
+  } ## end if not processed
+  
+} ## end loop over experiments
+
+## grab matching data
+obs.pre  = Yw[,t04-1]
+obs.dist = Yw[,t04]
+obs.tlo  = Yw[,tlo]
+obs.class= dextract[,"t2004"]/10
+
+save(eDPlist,obs.pre,obs.dist,obs.tlo,obs.class,file="eDPlist.RData")
+```
+
+
+## analyses
+
+```{r}
+pdf("OR_DP_exps_diagnostics.pdf")
+trim <- function(x,lo=0.0001,hi=0.9999){
+  x[x<lo] <- lo
+  x[x>hi] <- hi
+  return(x)
+}
+betatrim <- function(y){
+    n.obs <- sum(!is.na(y))
+    (y * (n.obs - 1) + 0.5) / n.obs
+}
+stats <- list()
+for(i in seq_along(exps)){
+  
+  ## divergence
+  div = (eDPlist[[i]]$divergence[,1] - obs.tlo)/
+    (apply(eDPlist[[i]]$divergence[,c(2,6)],1,diff)*0.5)
+  div.reg    = lm(div~obs.tlo)
+  div.median = median(div,na.rm = TRUE)
+  div.cov    = sum(div < 1 & div > -1,na.rm=TRUE)/sum(!is.na(div))
+
+  
+  hist(div,main=exps[i])
+  abline(v=c(-1,1),lty=2)
+  plot(obs.tlo,div,col=obs.class,main=exps[i])
+  abline(h=c(-1,1),lty=2)
+  abline(div.reg,col=2)
+  
+  ## Disturbance detection
+  distrate = eDPlist[[i]]$distrate
+  hist(distrate,main=exps[i])
+  
+  ## Disturbance skill
+  ord <- order(distrate)
+  plot(distrate[ord],col=obs.class[ord],main=exps[i])
+  dist.bar   = mean(distrate,na.rm = TRUE)
+  dist.class = tapply(distrate,obs.class,mean,na.rm=TRUE)
+  
+  ## vs predisturbance biomass
+  distrate2 = betatrim(distrate)
+  pred.seq = data.frame(obs.pre=seq(0,max(obs.pre,na.rm = TRUE),length=500),
+                        distprop = seq(-1,1,length=500))
+  dist.reg.pre  = lm(distrate ~ obs.pre)
+  dist.beta.pre = betareg::betareg(distrate2 ~ obs.pre,
+                                   na.action=na.omit,link="logit")
+  plot(obs.pre,distrate,col=obs.class,main=exps[i])
+  abline(dist.reg.pre,col=2)
+  lines(pred.seq$obs.pre,predict(dist.beta.pre,newdata=pred.seq),col="green")
+  
+  ## vs proportional disturbance size
+  distprop = 1 - eDPlist[[i]]$distsize[,1]/eDPlist[[i]]$predist[,1] ## predicted
+  distprop = 1 - obs.dist/obs.pre ## observed
+  dist.beta.prop = betareg::betareg(distrate2 ~ distprop,
+                                   na.action=na.omit,link="logit")
+  plot(distprop,distrate,col=obs.class,main=exps[i])
+  lines(pred.seq$distprop,predict(dist.beta.prop,newdata=pred.seq),col="green")
+  
+  ## vs ABSOLUTE disturbance size
+  distabs = obs.pre-obs.dist
+  pred.seq$distabs = seq(min(distabs),max(distabs),length=500)
+  dist.beta.abs = betareg::betareg(distrate2 ~ distabs | distabs,
+                                   na.action=na.omit,
+                                   link="logit",
+                                   link.phi = "identity",
+                                   start=c(0,5,0.5,0),
+                                   type="BR")
+  dist.qb.abs = glm(distrate ~ distabs,
+                    na.action=na.omit,
+                    family=quasibinomial("logit")
+  )
+  dist.bin.abs = glm(round(distrate) ~ distabs,
+                    na.action=na.omit,
+                    family=binomial("logit")
+  )
+  plot(distabs,distrate,col=obs.class,main=exps[i])
+  lines(pred.seq$distabs,predict(dist.beta.abs,newdata=pred.seq,type="quantile"),col="green")
+  lines(pred.seq$distabs,predict(dist.beta.abs,newdata=pred.seq,type="quantile",at=0.75),col="green",lty=2)
+  lines(pred.seq$distabs,predict(dist.beta.abs,newdata=pred.seq,type="quantile",at=0.25),col="green",lty=2)
+  lines(pred.seq$distabs,predict(dist.qb.abs,newdata=pred.seq,type="response"),col="purple")
+  lines(pred.seq$distabs,predict(dist.bin.abs,newdata=pred.seq,type="response"),col="blue")
+
+  ## vs divergence
+  absdiv = abs(div)
+  dist.beta.absdiv = betareg::betareg(distrate2 ~ absdiv,
+                                   na.action=na.omit,link="logit")
+  dist.bin.absdiv = glm(round(distrate) ~ absdiv,
+                                   na.action=na.omit,
+                        family = binomial("logit"))
+  pred.seq$absdiv = seq(0,max(absdiv,na.rm=TRUE),length=500)
+  plot(absdiv,distrate,col=obs.class,main=exps[i])
+  abline(v=c(-1,1),lty=2,col=3)
+  abline(lm(distrate ~ absdiv),col=2)
+  lines(pred.seq$absdiv,predict(dist.beta.absdiv,newdata=pred.seq),col="green")
+  lines(pred.seq$absdiv,predict(dist.bin.absdiv,newdata=pred.seq,type="response"),col="blue")
+
+ dist.qb.combo = glm(distrate2 ~ obs.pre + distprop +
+                        distabs + absdiv + obs.class,
+                      na.action=na.omit,
+                      family=quasibinomial("logit"))
+  dist.bin.combo = glm(round(distrate) ~ obs.pre + distprop +
+                        distabs + absdiv + as.factor(obs.class),
+                      na.action=na.omit,
+                      family=binomial("logit"))
+  
+# dist.beta.combo = betareg::betareg(distrate2 ~ obs.pre + obs.class + distabs + absdiv,
+#                                   na.action=na.omit,link="logit")
+  
+  stats[[i]] <- list(
+    div.reg = div.reg,
+    div.median = div.median,
+    div.cov = div.cov,
+    dist.bar = dist.bar,
+    dist.class = dist.class,
+    dist.pre =  dist.beta.pre,
+    dist.prop = dist.beta.prop,
+    dist.beta.abs =  dist.beta.abs,
+    dist.bin.abs  = dist.bin.abs,
+    dist.absdiv   = dist.beta.absdiv,
+    dist.combo = dist.bin.combo
+  )
+
+}
+dev.off()
+save(stats,file="stats.DP.RData")
+```
+# TODO
+* add figures looking at how AGB data updates disturbance probability relative to the priors
+
+factors affecting detection of disturbance
+```{r}
+Ps = as.numeric(substr(names(eDPlist),2,2))
+Qs = as.numeric(substr(names(eDPlist),4,4))
+Rs = as.numeric(substr(names(eDPlist),6,6))
+
+## P
+
+## Q
+
+## R
+
+## Divergence
+div.cov = sapply(stats,"[[","div.cov")
+plot(Rmult[Rs],div.cov,col=Qs,log="x",xlab="Variance Multiplier",ylab="Filter Coverage")
+legend("topright",legend=paste0(Qmult[1:2],"x"))
+
+div.median = sapply(stats,"[[","div.median")
+plot(Rmult[Rs],div.median,col=Qs,log="x",xlab="Variance Multiplier",ylab="Median Divergance")
+legend("topleft",legend=paste0(Qmult[1:2],"x"))
+
+div.slope = sapply(stats,function(x){coef(x$div.reg)[2]})
+plot(Rmult[Rs],div.slope,col=Qs,log="x",xlab="Variance Multiplier",ylab="Divergance Slope")
+## Disturbance @ default
+#summary(stats[[4]]$dist.combo)
+## nothing matters
+
+## Disturbance @ P1Q2R2 (intermediate)
+#summary(stats[[4]]$dist.combo)
+## detection varies with divergence & disturbance type
+
+## Disturbance magnitude: P1Q1R2
+i = 2
+summary(stats[[i]]$dist.combo)  ## absolute magnitude of divergence is best predictor
+summary(stats[[i]]$dist.bin.abs)
+beta = coef(stats[[i]]$dist.bin.abs)
+## threshold mx+b = 0
+thresh = -beta[1]/beta[2] 
+
+## Disturbance type: P1Q1R2 (reduced divergence)
+stats[[i]]$dist.class
+tapply(distabs,obs.class,summary) ## obs dist size by class
+thresh.prop = tapply(distabs,obs.class,function(x){sum(x>thresh,na.rm = TRUE)/sum(!is.na(x))}) ## prop > detection threshold
+thresh.prop
+stats[[i]]$dist.class
+dclass = stats[[i]]$dist.class
+#dclass[1] = 0
+dcol = as.numeric(names(stats[[i]]$dist.class)) + 1
+plot(thresh.prop,dclass,col=dcol,pch=19)
+abline(0,1,lty=2,col=2)
+legend("topleft",legend = dcol-1,col=dcol,pch=19)
+
+
+## additional experiments to run (P1Q1R4)
+```
+
+false positives
+
+false negatives
+
+classification success
+
+## preprocess timeseries example for visualization
+```{r}
+## visualization to help select a site to look at
+plotly::plot_ly(data.frame(obs.pre=obs.pre,obs.post=obs.dist),x=~obs.pre,y=~obs.post)
+which.min((obs.pre-13.3)^2+(obs.dist-5.1)^2) ## select a point
+
+## settings
+site = 188
+exp.name = "P1Q1R2" #"P1Q1R1"  ## manually run for each experiment **
+
+## data
+NT = 33
+Yi = matrix(NA,NT,3)  ## observed data
+Yi[1:ncol(Yw),3] = Yw[site,]  ## only Cw observed
+  
+## model
+viz = rlang::env()
+load(paste0("OR_DP_",site,"_",exp.name,".RData"),envir = viz)
+pool.names=c("Cleaf","Csoil","Cstem")
+test = viz$test
+
+for(i in 1:3){
+  
+    CI.Na = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("n[",i,"]"))
+      y[,sel.n]
+    })
+    
+    CI.D = sapply(X = test$Analysis,function(x){
+      y = x$CI
+      sel.n = which(colnames(y) == paste0("D"))
+      y[,sel.n]
+    })
+
+    CI.Nf = sapply(X = test$Forecast, function(x){
+      mu = x$mufN[i]
+      sd = 1/sqrt(x$pfN[i,i])
+      return(mu + c(-1.96,0,1.96)*sd)
+    })
+    
+  plot(Yi[,i],
+       ylim = range(rbind(CI.Na,Yi[,i],CI.D),na.rm=TRUE),
+       type='n',
+       ylab=pool.names[i],xlab="time")
+  ecoforecastR::ciEnvelope(1:ncol(CI.Nf),CI.Nf[1,],CI.Nf[3,],col=ecoforecastR::col.alpha("blue",0.5))
+  ecoforecastR::ciEnvelope(1:ncol(CI.Na),CI.Na[1,],CI.Na[5,],col=ecoforecastR::col.alpha('#b2df8a',0.7))
+  lines(CI.Na[3,],col="#b2df8a",lwd=2)
+  points(Yi[,i])
+  lines(CI.D[3,])
+  
+  
+}
+save(Yi,CI.Na,CI.D,file=paste0("OR_DPTS_",site,"_",exp.name,".RData"))
+```
+
+## summary info for filter divergence figures
+```{r}
+exp.name = "P1Q1R2" #"P1Q1R1"
+
+for(i in seq_along(exps)){
+  
+  ## divergence
+  div = (eDPlist[[i]]$divergence[,1] - obs.tlo)/
+    (apply(eDPlist[[i]]$divergence[,c(2,6)],1,diff)*0.5)
+  div.reg    = lm(div~obs.tlo)
+  div.median = median(div,na.rm = TRUE)
+  div.cov    = sum(div < 1 & div > -1,na.rm=TRUE)/sum(!is.na(div))
+  
+}
+```
+
+
+## Next steps:
+* Run with multiple disturbance options and PFT switching
